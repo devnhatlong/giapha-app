@@ -869,7 +869,9 @@ function treeComputeGenerations(persons, parent_child, marriages, visibleIds, pa
             const g1 = generation[m.person1_id];
             const g2 = generation[m.person2_id];
             if (g1 != null && g2 != null && g1 !== g2) {
-                const g = Math.min(g1, g2);
+                // Không kéo người đã có nhánh con cháu xuống đời thấp hơn.
+                // Nếu lệch đời thì nâng người thấp lên theo người cao.
+                const g = Math.max(g1, g2);
                 generation[m.person1_id] = g;
                 generation[m.person2_id] = g;
                 changed = true;
@@ -898,7 +900,50 @@ function treeResolveRowCollisions(rowIds, posX) {
     }
 }
 
+function treeEnforceSpouseAdjacency(rowIds, posX, marriages, generation) {
+    if (!rowIds || rowIds.length < 2) return;
+    const sorted = [...rowIds].sort((a, b) => posX[a] - posX[b]);
+    const placed = new Set();
+    const ordered = [];
+
+    sorted.forEach((id) => {
+        if (placed.has(id)) return;
+        ordered.push(id);
+        placed.add(id);
+
+        const spouse = marriages.find(
+            (m) =>
+                ((m.person1_id === id && sorted.includes(m.person2_id)) ||
+                    (m.person2_id === id && sorted.includes(m.person1_id))) &&
+                generation[m.person1_id] === generation[m.person2_id]
+        );
+        if (!spouse) return;
+
+        const sid = spouse.person1_id === id ? spouse.person2_id : spouse.person1_id;
+        if (!placed.has(sid)) {
+            ordered.push(sid);
+            placed.add(sid);
+        }
+    });
+
+    const startX = Math.min(...ordered.map((id) => posX[id]));
+    ordered.forEach((id, idx) => {
+        posX[id] = startX + idx * (NODE_W + H_GAP);
+    });
+}
+
 function treeLayoutPositions(rows, genLevels, familyGroups, marriages, visibleIds, byId, generation, posX) {
+    const getSameGenSpouse = (id) => {
+        const rel = marriages.find(
+            (m) =>
+                ((m.person1_id === id && visibleIds.has(m.person2_id)) ||
+                    (m.person2_id === id && visibleIds.has(m.person1_id))) &&
+                generation[m.person1_id] === generation[m.person2_id]
+        );
+        if (!rel) return null;
+        return rel.person1_id === id ? rel.person2_id : rel.person1_id;
+    };
+
     genLevels.forEach((g) => {
         const row = rows[g];
         const placed = new Set();
@@ -935,13 +980,40 @@ function treeLayoutPositions(rows, genLevels, familyGroups, marriages, visibleId
 
             childIds.sort((a, b) => byId[a].full_name.localeCompare(byId[b].full_name));
             const anchorCenter = treeFamilyAnchorX(unit, posX, 0, marriages);
-            const totalW = childIds.length * NODE_W + (childIds.length - 1) * H_GAP;
-            let startX = anchorCenter - totalW / 2;
-            childIds.forEach((id, i) => {
-                posX[id] = startX + i * (NODE_W + H_GAP);
+            const childUnits = [];
+            const used = new Set();
+
+            childIds.forEach((id) => {
+                if (used.has(id)) return;
+                const spouseId = getSameGenSpouse(id);
+                if (spouseId && !used.has(spouseId)) {
+                    childUnits.push({ type: "couple", ids: [id, spouseId] });
+                    used.add(id);
+                    used.add(spouseId);
+                } else {
+                    childUnits.push({ type: "single", ids: [id] });
+                    used.add(id);
+                }
+            });
+
+            const unitWidths = childUnits.map((u) => (u.type === "couple" ? (NODE_W * 2 + H_GAP) : NODE_W));
+            const totalW = unitWidths.reduce((s, w) => s + w, 0) + Math.max(0, childUnits.length - 1) * H_GAP;
+            let cursorX = anchorCenter - totalW / 2;
+
+            childUnits.forEach((u, idx) => {
+                if (u.type === "couple") {
+                    const [a, b] = u.ids.sort((x, y) => byId[x].full_name.localeCompare(byId[y].full_name));
+                    posX[a] = cursorX;
+                    posX[b] = cursorX + NODE_W + H_GAP;
+                } else {
+                    posX[u.ids[0]] = cursorX;
+                }
+                cursorX += unitWidths[idx] + H_GAP;
             });
         });
 
+        treeResolveRowCollisions(rows[g], posX);
+        treeEnforceSpouseAdjacency(rows[g], posX, marriages, generation);
         treeResolveRowCollisions(rows[g], posX);
     });
 
@@ -958,12 +1030,26 @@ function treeDrawConnectors(familyGroups, generation, posX, offsetX, visibleIds,
         drawnMarriages.add(mk);
         const leftId = posX[p1] < posX[p2] ? p1 : p2;
         const rightId = leftId === p1 ? p2 : p1;
-        const x1 = posX[leftId] + offsetX + NODE_W;
-        const x2 = posX[rightId] + offsetX;
-        const y = generation[leftId] * V_GAP + NODE_TOP + NODE_H / 2;
+        const leftCenter = treeNodeCenterX(leftId, posX, offsetX);
+        const rightCenter = treeNodeCenterX(rightId, posX, offsetX);
+        const y1 = generation[leftId] * V_GAP + NODE_TOP + NODE_H / 2;
+        const y2 = generation[rightId] * V_GAP + NODE_TOP + NODE_H / 2;
+        let x1 = posX[leftId] + offsetX + NODE_W - 8;
+        let x2 = posX[rightId] + offsetX + 8;
+        if (x2 <= x1) {
+            // Khi node bị xếp sát/đè nhau, vẫn ép có đoạn nối ngắn.
+            x1 = leftCenter + 8;
+            x2 = rightCenter - 8;
+        }
         if (x2 > x1) {
-            out += `<line class="marriage-line" x1="${x1}" y1="${y}" x2="${x2}" y2="${y}" />`;
-            out += `<circle class="marriage-dot" cx="${(x1 + x2) / 2}" cy="${y}" r="6" />`;
+            if (Math.abs(y1 - y2) < 1) {
+                out += `<line class="marriage-line" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y1}" />`;
+                out += `<circle class="marriage-dot" cx="${(x1 + x2) / 2}" cy="${y1}" r="6" />`;
+            } else {
+                const midY = Math.min(y1, y2) - 14;
+                out += `<path class="marriage-line" d="M ${x1} ${y1} L ${x1} ${midY} L ${x2} ${midY} L ${x2} ${y2}" />`;
+                out += `<circle class="marriage-dot" cx="${(x1 + x2) / 2}" cy="${midY}" r="6" />`;
+            }
         }
     };
 
@@ -992,7 +1078,6 @@ function treeDrawConnectors(familyGroups, generation, posX, offsetX, visibleIds,
 
     marriages.forEach((m) => {
         if (!visibleIds.has(m.person1_id) || !visibleIds.has(m.person2_id)) return;
-        if (generation[m.person1_id] !== generation[m.person2_id]) return;
         drawMarriageLine(m.person1_id, m.person2_id);
     });
 
@@ -1047,6 +1132,22 @@ function drawTree(data, rootId) {
             if (visibleIds.has(cur)) continue;
             visibleIds.add(cur);
             (childrenOf[cur] || []).forEach((c) => queue.push(c));
+        }
+
+        // Khi xem từ 1 người gốc: luôn kèm vợ/chồng của nhánh hậu duệ
+        // để không bị mất cặp hôn nhân (vd: con có vợ/chồng nhưng chưa có con chung).
+        let expanded = true;
+        while (expanded) {
+            expanded = false;
+            marriages.forEach((m) => {
+                if (visibleIds.has(m.person1_id) && !visibleIds.has(m.person2_id)) {
+                    visibleIds.add(m.person2_id);
+                    expanded = true;
+                } else if (visibleIds.has(m.person2_id) && !visibleIds.has(m.person1_id)) {
+                    visibleIds.add(m.person1_id);
+                    expanded = true;
+                }
+            });
         }
     }
 
