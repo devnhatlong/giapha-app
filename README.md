@@ -17,6 +17,7 @@ giapha_app/
 │   ├── index.html           <- Giao diện
 │   ├── css/style.css
 │   └── js/app.js             <- Logic giao diện, vẽ cây gia phả bằng SVG
+├── icon/                    <- Icon app (main-icon.png / .ico)
 ├── data/
 │   └── giapha.db            <- File database (tự tạo khi chạy lần đầu)
 └── uploads/                 <- Nơi lưu ảnh đại diện / tài liệu đính kèm
@@ -37,6 +38,25 @@ python main.py
 Cửa sổ ứng dụng sẽ tự mở lên. Sau bước cài thư viện, những lần sau
 chỉ cần chạy `python main.py` — không cần internet, không cần bật server thủ công.
 
+## Nguyên tắc chạy offline
+
+Ứng dụng **phải chạy được khi không có internet**. Cụ thể:
+
+| Thành phần | Cách làm hiện tại |
+|------------|-------------------|
+| **Font** | Font hệ thống (`Segoe UI`, Arial…) — không Google Fonts |
+| **CSS / JS** | File local trong `frontend/` — không CDN |
+| **API** | FastAPI trên `127.0.0.1:8756` — không gọi server ngoài |
+| **Database** | SQLite file `data/giapha.db` |
+| **Ảnh / icon** | `uploads/`, `icon/` — lưu trên máy |
+| **Cây gia phả** | Vẽ SVG thuần — không thư viện JS ngoài |
+
+> Internet chỉ cần **một lần** khi dev cài thư viện Python (`pip install -r requirements.txt`).
+> Người dùng cuối (hoặc bản .exe) không cần mạng.
+
+Khi thêm tính năng mới: **không** dùng CDN, Google Fonts, API cloud, hay font tải từ URL.
+Nếu cần font/ảnh riêng → nhúng file vào project.
+
 ## 3. Đóng gói thành 1 file .exe để người dùng khác không cần cài Python
 
 Đây là bước biến ứng dụng thành 1 file chạy trực tiếp, giống phần mềm bình thường:
@@ -44,8 +64,10 @@ chỉ cần chạy `python main.py` — không cần internet, không cần bậ
 ```bash
 pip install pyinstaller
 pyinstaller --noconfirm --windowed --name "GiaPha" ^
+    --icon icon/main-icon.ico ^
     --add-data "frontend;frontend" ^
     --add-data "backend/schema.sql;backend" ^
+    --add-data "icon;icon" ^
     main.py
 ```
 *(Trên macOS/Linux, thay `;` bằng `:` trong `--add-data`)*
@@ -70,7 +92,7 @@ không cần cài gì thêm.
 
 ## 5. Các chức năng dự kiến làm ở bước sau
 
-- Upload ảnh đại diện / tài liệu đính kèm (đã có bảng DB, chưa có giao diện)
+- Upload ảnh đại diện gia phả / từng thành viên
 - Xuất/nhập file GEDCOM (chuẩn gia phả quốc tế)
 - Xuất cây gia phả ra PDF / ảnh để in
 - Sao lưu (backup) & khôi phục dữ liệu bằng 1 nút bấm

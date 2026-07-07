@@ -4,6 +4,8 @@
    theo thời gian, dấu triện đỏ (ấn son) của các dòng họ Việt Nam xưa.
    Không dùng font tải từ Internet vì ứng dụng phải chạy OFFLINE hoàn toàn
    -> dùng font hệ thống có sẵn, hỗ trợ tốt tiếng Việt có dấu.
+   -> KHÔNG thêm @import Google Fonts hay @font-face trỏ URL ngoài.
+   -> Nếu cần font riêng: đặt file .woff2 trong frontend/fonts/ và @font-face local.
    ============================================================ */
 :root {
     --color-sidebar: #2B2118;      /* Gỗ mun - nền thanh điều hướng */

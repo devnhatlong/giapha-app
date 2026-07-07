@@ -5,14 +5,15 @@
    - Chuyển tab (Tổng quan / Thành viên / Cây gia phả / Sự kiện)
    - Gọi API backend (fetch) để lấy/gửi dữ liệu
    - Vẽ sơ đồ cây gia phả bằng SVG (không cần thư viện ngoài -> chạy offline)
+   - OFFLINE: chỉ gọi API nội bộ (/api), không CDN, không script/font từ internet
 
    Ghi chú cho người mới học:
    - "async function" + "await fetch(...)" là cách JavaScript gọi API
      và CHỜ kết quả trả về trước khi làm bước tiếp theo.
-   - API_BASE là địa chỉ gốc của backend (do main.py mở ở cổng 8756)
+   - API_BASE là đường dẫn tương đối tới backend local (cùng máy, cổng 8756)
    ============================================================ */
 
-const API_BASE = "/api";
+const API_BASE = "/api"; // Luôn local — không đổi thành URL internet
 
 // Biến lưu trạng thái tạm thời trong phiên làm việc
 let allPersons = [];
