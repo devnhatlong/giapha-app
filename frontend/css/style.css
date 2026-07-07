@@ -292,6 +292,55 @@ table.data-table {
 .data-table tr:last-child td { border-bottom: none; }
 .data-table tr:hover { background: rgba(139, 38, 53, 0.04); cursor: pointer; }
 
+.pagination {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 14px;
+    padding: 12px 4px 4px;
+}
+
+.pagination-info {
+    font-size: 13px;
+    color: var(--color-ink-soft);
+}
+
+.pagination-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.pagination-pages {
+    font-size: 13px;
+    color: var(--color-ink);
+    min-width: 80px;
+    text-align: center;
+}
+
+.pagination-btn {
+    padding: 7px 14px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-card);
+    color: var(--color-ink);
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.pagination-btn:hover:not(:disabled) {
+    background: rgba(139, 38, 53, 0.06);
+    border-color: var(--color-accent);
+}
+
+.pagination-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
 .status-dot {
     display: inline-block;
     width: 8px;
@@ -509,6 +558,37 @@ table.data-table {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 8px;
+}
+
+.relation-list li.relation-empty {
+    justify-content: flex-start;
+    color: var(--color-ink-soft);
+}
+
+.relation-name { flex: 1; min-width: 0; }
+
+.relation-status { color: var(--color-ink-soft); }
+
+.relation-remove {
+    flex-shrink: 0;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-card);
+    color: var(--color-ink-soft);
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.relation-remove:hover {
+    background: var(--color-deceased);
+    color: #fff;
+    border-color: var(--color-deceased);
 }
 
 /* ============================================================
@@ -527,7 +607,7 @@ table.data-table {
     border-radius: var(--radius);
     overflow: auto;
     box-shadow: var(--shadow-card);
-    height: calc(100vh - 260px);
+    height: calc(100vh - 230px);
     padding: 20px 0;
 }
 
@@ -684,6 +764,95 @@ table.data-table {
     width: 32px;
     height: 32px;
     font-size: 12px;
+}
+
+/* ============================================================
+   POPUP XÁC NHẬN & TOAST
+   ============================================================ */
+.confirm-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(43, 33, 24, 0.55);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+}
+
+.confirm-overlay.open { display: flex; }
+
+.confirm-box {
+    background: var(--color-card);
+    width: 400px;
+    max-width: 90vw;
+    border-radius: 8px;
+    padding: 24px 26px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+    border: 1px solid var(--color-border);
+}
+
+.confirm-title {
+    font-family: var(--font-display);
+    font-size: 18px;
+    margin: 0 0 10px 0;
+    color: var(--color-ink);
+}
+
+.confirm-message {
+    margin: 0 0 20px 0;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--color-ink-soft);
+}
+
+.confirm-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+.toast-container {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 300;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    pointer-events: none;
+}
+
+.toast {
+    min-width: 260px;
+    max-width: 360px;
+    padding: 12px 16px;
+    border-radius: var(--radius);
+    font-size: 14px;
+    line-height: 1.4;
+    box-shadow: var(--shadow-card);
+    border: 1px solid var(--color-border);
+    background: var(--color-card);
+    color: var(--color-ink);
+    opacity: 0;
+    transform: translateX(20px);
+    transition: opacity 0.3s, transform 0.3s;
+}
+
+.toast.show {
+    opacity: 1;
+    transform: translateX(0);
+}
+
+.toast-success {
+    border-left: 4px solid var(--color-alive);
+}
+
+.toast-error {
+    border-left: 4px solid var(--color-accent);
+}
+
+.toast-info {
+    border-left: 4px solid var(--color-gold);
 }
 
 /* Scrollbar giấy cũ nhẹ nhàng */

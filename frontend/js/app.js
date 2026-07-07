@@ -18,6 +18,16 @@ const API_BASE = "/api"; // Luôn local — không đổi thành URL internet
 // Biến lưu trạng thái tạm thời trong phiên làm việc
 let allPersons = [];
 let currentDetailId = null;
+let detailReturnTab = "members";
+let membersPage = 1;
+const MEMBERS_PAGE_SIZE = 10;
+
+const DETAIL_RETURN_LABELS = {
+    members: "← Quay lại danh sách",
+    tree: "← Quay lại cây gia phả",
+    dashboard: "← Quay lại tổng quan",
+    events: "← Quay lại sự kiện",
+};
 
 // ============================================================
 // TIỆN ÍCH GỌI API
@@ -147,18 +157,26 @@ document.getElementById("family-avatar-input").addEventListener("change", async 
     try {
         const result = await apiUpload("/settings/family-avatar", file);
         updateFamilyAvatarUI(result.family_avatar_path);
+        showToast("Đã cập nhật ảnh gia phả", "success");
     } catch (err) {
-        alert(err.message);
+        showToast(err.message, "error");
     }
 });
 
 document.getElementById("btn-remove-family-avatar").addEventListener("click", async () => {
-    if (!confirm("Xóa ảnh đại diện gia phả?")) return;
+    const ok = await showConfirm({
+        title: "Xóa ảnh gia phả",
+        message: "Bạn có chắc muốn xóa ảnh đại diện gia phả?",
+        confirmText: "Xóa",
+        danger: true,
+    });
+    if (!ok) return;
     try {
         await apiDelete("/settings/family-avatar");
         updateFamilyAvatarUI(null);
+        showToast("Đã xóa ảnh gia phả", "success");
     } catch (err) {
-        alert(err.message);
+        showToast(err.message, "error");
     }
 });
 
@@ -223,18 +241,47 @@ async function loadMembers(search) {
     renderMembersTable();
 }
 
+function goToMembersPage(page) {
+    const totalPages = Math.max(1, Math.ceil(allPersons.length / MEMBERS_PAGE_SIZE));
+    membersPage = Math.max(1, Math.min(page, totalPages));
+    renderMembersTable();
+}
+
+function renderMembersPagination(total, totalPages) {
+    if (totalPages <= 1) return "";
+    const start = (membersPage - 1) * MEMBERS_PAGE_SIZE + 1;
+    const end = Math.min(membersPage * MEMBERS_PAGE_SIZE, total);
+    return `
+        <div class="pagination">
+            <span class="pagination-info">Hiển thị ${start}–${end} / ${total} thành viên</span>
+            <div class="pagination-controls">
+                <button type="button" class="pagination-btn" ${membersPage <= 1 ? "disabled" : ""} onclick="goToMembersPage(${membersPage - 1})">← Trước</button>
+                <span class="pagination-pages">Trang ${membersPage} / ${totalPages}</span>
+                <button type="button" class="pagination-btn" ${membersPage >= totalPages ? "disabled" : ""} onclick="goToMembersPage(${membersPage + 1})">Sau →</button>
+            </div>
+        </div>
+    `;
+}
+
 function renderMembersTable() {
     const wrap = document.getElementById("members-table-wrap");
     if (allPersons.length === 0) {
         wrap.innerHTML = `<div class="empty-state"><div class="empty-icon">☰</div>Chưa có thành viên nào. Nhấn "Thêm thành viên" để bắt đầu.</div>`;
         return;
     }
+
+    const total = allPersons.length;
+    const totalPages = Math.max(1, Math.ceil(total / MEMBERS_PAGE_SIZE));
+    if (membersPage > totalPages) membersPage = totalPages;
+    const startIdx = (membersPage - 1) * MEMBERS_PAGE_SIZE;
+    const pageItems = allPersons.slice(startIdx, startIdx + MEMBERS_PAGE_SIZE);
+
     wrap.innerHTML = `
         <table class="data-table">
             <thead><tr><th>Họ tên</th><th>Giới tính</th><th>Đời</th><th>Năm sinh</th><th>Trạng thái</th></tr></thead>
             <tbody>
-                ${allPersons.map(p => `
-                    <tr onclick="openDetail(${p.id})">
+                ${pageItems.map(p => `
+                    <tr onclick="openDetail(${p.id}, 'members')">
                         <td>
                             <div class="member-name-cell">
                                 ${renderAvatarHtml(p.full_name, p.avatar_path)}
@@ -251,10 +298,12 @@ function renderMembersTable() {
                 `).join("")}
             </tbody>
         </table>
+        ${renderMembersPagination(total, totalPages)}
     `;
 }
 
 document.getElementById("search-input").addEventListener("input", (e) => {
+    membersPage = 1;
     loadMembers(e.target.value);
 });
 
@@ -329,14 +378,20 @@ document.getElementById("person-avatar-input").addEventListener("change", async 
         );
         await loadMembers(document.getElementById("search-input").value);
     } catch (err) {
-        alert(err.message);
+        showToast(err.message, "error");
     }
 });
 
 document.getElementById("btn-remove-person-avatar").addEventListener("click", async () => {
     const personId = document.getElementById("person-id").value;
     if (!personId || !editingPersonAvatarPath) return;
-    if (!confirm("Xóa ảnh đại diện của thành viên này?")) return;
+    const ok = await showConfirm({
+        title: "Xóa ảnh đại diện",
+        message: "Xóa ảnh đại diện của thành viên này?",
+        confirmText: "Xóa",
+        danger: true,
+    });
+    if (!ok) return;
     try {
         await apiDelete(`/persons/${personId}/avatar`);
         editingPersonAvatarPath = null;
@@ -348,8 +403,9 @@ document.getElementById("btn-remove-person-avatar").addEventListener("click", as
             avatarInitials(name)
         );
         await loadMembers(document.getElementById("search-input").value);
+        showToast("Đã xóa ảnh đại diện", "success");
     } catch (err) {
-        alert(err.message);
+        showToast(err.message, "error");
     }
 });
 
@@ -370,26 +426,39 @@ document.getElementById("person-form").addEventListener("submit", async (e) => {
         biography: document.getElementById("f-biography").value || null,
     };
 
-    if (id) {
-        await apiSend(`/persons/${id}`, "PUT", payload);
-    } else {
-        await apiSend("/persons", "POST", payload);
+    try {
+        if (id) {
+            await apiSend(`/persons/${id}`, "PUT", payload);
+            showToast("Đã lưu thông tin thành viên", "success");
+        } else {
+            await apiSend("/persons", "POST", payload);
+            showToast("Đã thêm thành viên mới", "success");
+        }
+        closePersonModal();
+        await loadMembers();
+        if (currentDetailId) openDetail(currentDetailId);
+    } catch (err) {
+        showToast(err.message, "error");
     }
-    closePersonModal();
-    await loadMembers();
-    if (currentDetailId) openDetail(currentDetailId);
 });
 
 // ============================================================
 // TAB: CHI TIẾT THÀNH VIÊN
 // ============================================================
-async function openDetail(id) {
+function updateDetailBackButton() {
+    const btn = document.getElementById("btn-back-members");
+    btn.textContent = DETAIL_RETURN_LABELS[detailReturnTab] || "← Quay lại";
+}
+
+async function openDetail(id, returnTab) {
+    if (returnTab) detailReturnTab = returnTab;
     currentDetailId = id;
     const person = await apiGet(`/persons/${id}`);
 
     document.querySelectorAll(".tab-content").forEach(el => (el.style.display = "none"));
     document.getElementById("tab-detail").style.display = "block";
     document.querySelectorAll(".nav-item").forEach(el => el.classList.remove("active"));
+    updateDetailBackButton();
 
     document.getElementById("detail-name").textContent = person.full_name;
     document.getElementById("detail-subtitle").textContent =
@@ -421,20 +490,38 @@ async function openDetail(id) {
             <div class="card">
                 <h3 class="card-title">Cha / Mẹ</h3>
                 <ul class="relation-list">
-                    ${person.parents.map(p => `<li>${escapeHtml(p.full_name)}</li>`).join("") || "<li>Chưa có thông tin</li>"}
+                    ${person.parents.length
+                        ? person.parents.map(p => `
+                            <li>
+                                <span class="relation-name">${escapeHtml(p.full_name)}</span>
+                                <button type="button" class="relation-remove" title="Xóa liên kết" onclick="removeParentChildLink(${p.id}, ${person.id})">✕</button>
+                            </li>`).join("")
+                        : "<li class='relation-empty'>Chưa có thông tin</li>"}
                 </ul>
                 <button class="btn-secondary btn" style="margin-top:10px;width:100%" onclick="openRelationModal('parent')">+ Thêm cha/mẹ</button>
 
                 <h3 class="card-title" style="margin-top:18px">Vợ / Chồng</h3>
                 <ul class="relation-list">
-                    ${person.spouses.map(s => `<li>${escapeHtml(s.full_name)} <span style="color:var(--color-ink-soft)">(${s.status === "married" ? "đang kết hôn" : s.status === "divorced" ? "đã ly hôn" : "góa"})</span></li>`).join("") || "<li>Chưa có thông tin</li>"}
+                    ${person.spouses.length
+                        ? person.spouses.map(s => `
+                            <li>
+                                <span class="relation-name">${escapeHtml(s.full_name)} <span class="relation-status">(${s.status === "married" ? "đang kết hôn" : s.status === "divorced" ? "đã ly hôn" : "góa"})</span></span>
+                                <button type="button" class="relation-remove" title="Xóa liên kết" onclick="removeMarriageLink(${s.marriage_id})">✕</button>
+                            </li>`).join("")
+                        : "<li class='relation-empty'>Chưa có thông tin</li>"}
                 </ul>
                 <button class="btn-secondary btn" style="margin-top:10px;width:100%" onclick="openRelationModal('spouse')">+ Thêm vợ/chồng</button>
             </div>
             <div class="card">
                 <h3 class="card-title">Con cái</h3>
                 <ul class="relation-list">
-                    ${person.children.map(c => `<li>${escapeHtml(c.full_name)}</li>`).join("") || "<li>Chưa có thông tin</li>"}
+                    ${person.children.length
+                        ? person.children.map(c => `
+                            <li>
+                                <span class="relation-name">${escapeHtml(c.full_name)}</span>
+                                <button type="button" class="relation-remove" title="Xóa liên kết" onclick="removeParentChildLink(${person.id}, ${c.id})">✕</button>
+                            </li>`).join("")
+                        : "<li class='relation-empty'>Chưa có thông tin</li>"}
                 </ul>
                 <button class="btn-secondary btn" style="margin-top:10px;width:100%" onclick="openRelationModal('child')">+ Thêm con</button>
             </div>
@@ -456,33 +543,82 @@ async function openDetail(id) {
             await apiUpload(`/persons/${id}/avatar`, file);
             openDetail(id);
             await loadMembers(document.getElementById("search-input").value);
+            showToast("Đã cập nhật ảnh đại diện", "success");
         } catch (err) {
-            alert(err.message);
+            showToast(err.message, "error");
         }
     });
     document.getElementById("btn-detail-remove-avatar").addEventListener("click", async () => {
         if (!person.avatar_path) return;
-        if (!confirm("Xóa ảnh đại diện của thành viên này?")) return;
+        const ok = await showConfirm({
+            title: "Xóa ảnh đại diện",
+            message: "Xóa ảnh đại diện của thành viên này?",
+            confirmText: "Xóa",
+            danger: true,
+        });
+        if (!ok) return;
         try {
             await apiDelete(`/persons/${id}/avatar`);
             openDetail(id);
             await loadMembers(document.getElementById("search-input").value);
+            showToast("Đã xóa ảnh đại diện", "success");
         } catch (err) {
-            alert(err.message);
+            showToast(err.message, "error");
         }
     });
 }
 
-document.getElementById("btn-back-members").addEventListener("click", () => showTab("members"));
+document.getElementById("btn-back-members").addEventListener("click", () => showTab(detailReturnTab));
 document.getElementById("btn-edit-person").addEventListener("click", async () => {
     const person = await apiGet(`/persons/${currentDetailId}`);
     openPersonModal(person);
 });
 
 async function deletePerson(id) {
-    if (!confirm("Bạn có chắc muốn xóa thành viên này? Hành động này không thể hoàn tác.")) return;
+    const ok = await showConfirm({
+        title: "Xóa thành viên",
+        message: "Bạn có chắc muốn xóa thành viên này? Hành động này không thể hoàn tác.",
+        confirmText: "Xóa",
+        danger: true,
+    });
+    if (!ok) return;
     await apiSend(`/persons/${id}`, "DELETE");
+    showToast("Đã xóa thành viên", "success");
     showTab("members");
+}
+
+async function removeParentChildLink(parentId, childId) {
+    const ok = await showConfirm({
+        title: "Xóa liên kết",
+        message: "Xóa liên kết cha/mẹ – con này? Hai thành viên vẫn được giữ lại.",
+        confirmText: "Xóa liên kết",
+        danger: true,
+    });
+    if (!ok) return;
+    try {
+        await apiDelete(`/relationships/parent-child?parent_id=${parentId}&child_id=${childId}`);
+        showToast("Đã xóa liên kết", "success");
+        openDetail(currentDetailId);
+    } catch (err) {
+        showToast(err.message, "error");
+    }
+}
+
+async function removeMarriageLink(marriageId) {
+    const ok = await showConfirm({
+        title: "Xóa liên kết",
+        message: "Xóa liên kết hôn nhân này? Hai thành viên vẫn được giữ lại.",
+        confirmText: "Xóa liên kết",
+        danger: true,
+    });
+    if (!ok) return;
+    try {
+        await apiDelete(`/relationships/marriage/${marriageId}`);
+        showToast("Đã xóa liên kết hôn nhân", "success");
+        openDetail(currentDetailId);
+    } catch (err) {
+        showToast(err.message, "error");
+    }
 }
 
 // ============================================================
@@ -516,7 +652,7 @@ document.getElementById("relation-form").addEventListener("submit", async (e) =>
     e.preventDefault();
     const otherId = parseInt(document.getElementById("r-other_person").value);
     if (!otherId) {
-        alert("Vui lòng chọn một thành viên.");
+        showToast("Vui lòng chọn một thành viên.", "info");
         return;
     }
 
@@ -561,8 +697,15 @@ async function loadEvents() {
 }
 
 async function deleteEvent(id) {
-    if (!confirm("Xóa sự kiện này?")) return;
+    const ok = await showConfirm({
+        title: "Xóa sự kiện",
+        message: "Xóa sự kiện này?",
+        confirmText: "Xóa",
+        danger: true,
+    });
+    if (!ok) return;
     await apiSend(`/events/${id}`, "DELETE");
+    showToast("Đã xóa sự kiện", "success");
     loadEvents();
 }
 
@@ -992,7 +1135,7 @@ function truncate(str, n) {
 }
 
 function openDetailFromTree(id) {
-    openDetail(id);
+    openDetail(id, "tree");
 }
 
 // ============================================================
