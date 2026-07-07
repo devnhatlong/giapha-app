@@ -785,16 +785,24 @@ function treeBuildSpouseMap(marriages, visibleIds) {
     return map;
 }
 
-function treeResolveFamilyUnit(parentIds, spouseMap, visibleIds) {
-    for (const p of parentIds) {
-        const sp = spouseMap[p];
-        if (sp && visibleIds.has(sp)) {
-            return { type: "couple", ids: [Math.min(p, sp), Math.max(p, sp)] };
+function treeResolveFamilyUnit(parentIds, spouseMap, visibleIds, canInferCoupleForSingleParent) {
+    // Chỉ coi là "cặp cha mẹ" khi dữ liệu của con có từ 2 parent trở lên.
+    // Tránh tự động ghép con riêng của 1 người vào cả cặp vợ/chồng.
+    if (parentIds.length >= 2) {
+        for (const p of parentIds) {
+            const sp = spouseMap[p];
+            if (sp && visibleIds.has(sp) && parentIds.includes(sp)) {
+                return { type: "couple", ids: [Math.min(p, sp), Math.max(p, sp)] };
+            }
         }
     }
     if (parentIds.length === 1) {
         const sp = spouseMap[parentIds[0]];
-        if (sp && visibleIds.has(sp)) {
+        if (
+            sp &&
+            visibleIds.has(sp) &&
+            canInferCoupleForSingleParent(parentIds[0], sp)
+        ) {
             const p = parentIds[0];
             return { type: "couple", ids: [Math.min(p, sp), Math.max(p, sp)] };
         }
@@ -807,6 +815,25 @@ function treeResolveFamilyUnit(parentIds, spouseMap, visibleIds) {
 function treeBuildFamilyGroups(persons, parentsOf, marriages, visibleIds, generation) {
     const spouseMap = treeBuildSpouseMap(marriages, visibleIds);
     const groups = new Map();
+    const childrenByParent = {};
+
+    Object.entries(parentsOf).forEach(([childIdRaw, parentIds]) => {
+        const childId = parseInt(childIdRaw, 10);
+        parentIds.forEach((pid) => {
+            if (!childrenByParent[pid]) childrenByParent[pid] = [];
+            childrenByParent[pid].push(childId);
+        });
+    });
+
+    const canInferCoupleForSingleParent = (parentId, spouseId) => {
+        // Nếu vợ/chồng có con riêng (không cùng parentId) thì không tự suy ra con chung.
+        const spouseChildren = (childrenByParent[spouseId] || []).filter((cid) => visibleIds.has(cid));
+        for (const cid of spouseChildren) {
+            const pids = (parentsOf[cid] || []).filter((pid) => visibleIds.has(pid));
+            if (pids.includes(spouseId) && !pids.includes(parentId)) return false;
+        }
+        return true;
+    };
 
     persons.filter((p) => visibleIds.has(p.id)).forEach((child) => {
         let parentIds = (parentsOf[child.id] || []).filter((pid) => visibleIds.has(pid));
@@ -817,7 +844,12 @@ function treeBuildFamilyGroups(persons, parentsOf, marriages, visibleIds, genera
         );
         if (parentIds.length === 0) return;
 
-        const unit = treeResolveFamilyUnit(parentIds, spouseMap, visibleIds);
+        const unit = treeResolveFamilyUnit(
+            parentIds,
+            spouseMap,
+            visibleIds,
+            canInferCoupleForSingleParent
+        );
         let key;
         if (unit.type === "couple") key = `c-${unit.ids[0]}-${unit.ids[1]}`;
         else if (unit.type === "single") key = `p-${unit.ids[0]}`;
@@ -900,38 +932,6 @@ function treeResolveRowCollisions(rowIds, posX) {
     }
 }
 
-function treeEnforceSpouseAdjacency(rowIds, posX, marriages, generation) {
-    if (!rowIds || rowIds.length < 2) return;
-    const sorted = [...rowIds].sort((a, b) => posX[a] - posX[b]);
-    const placed = new Set();
-    const ordered = [];
-
-    sorted.forEach((id) => {
-        if (placed.has(id)) return;
-        ordered.push(id);
-        placed.add(id);
-
-        const spouse = marriages.find(
-            (m) =>
-                ((m.person1_id === id && sorted.includes(m.person2_id)) ||
-                    (m.person2_id === id && sorted.includes(m.person1_id))) &&
-                generation[m.person1_id] === generation[m.person2_id]
-        );
-        if (!spouse) return;
-
-        const sid = spouse.person1_id === id ? spouse.person2_id : spouse.person1_id;
-        if (!placed.has(sid)) {
-            ordered.push(sid);
-            placed.add(sid);
-        }
-    });
-
-    const startX = Math.min(...ordered.map((id) => posX[id]));
-    ordered.forEach((id, idx) => {
-        posX[id] = startX + idx * (NODE_W + H_GAP);
-    });
-}
-
 function treeLayoutPositions(rows, genLevels, familyGroups, marriages, visibleIds, byId, generation, posX) {
     const getSameGenSpouse = (id) => {
         const rel = marriages.find(
@@ -1012,8 +1012,6 @@ function treeLayoutPositions(rows, genLevels, familyGroups, marriages, visibleId
             });
         });
 
-        treeResolveRowCollisions(rows[g], posX);
-        treeEnforceSpouseAdjacency(rows[g], posX, marriages, generation);
         treeResolveRowCollisions(rows[g], posX);
     });
 
