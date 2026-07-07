@@ -731,16 +731,45 @@ table.data-table {
 
 .avatar-upload-actions {
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
+    flex-wrap: wrap;
     gap: 8px;
-    align-items: flex-start;
+    align-items: center;
 }
 
 .avatar-hint {
     margin: 0;
     font-size: 13px;
     color: var(--color-ink-soft);
+    width: 100%;
     max-width: 360px;
+}
+
+#btn-detail-change-avatar,
+#btn-detail-remove-avatar {
+    min-width: 92px;
+}
+
+#btn-detail-change-avatar {
+    background: var(--color-accent);
+    color: #FBF5E7;
+    border-color: var(--color-accent);
+}
+
+#btn-detail-change-avatar:hover {
+    background: var(--color-accent-dark);
+    border-color: var(--color-accent-dark);
+    color: #FBF5E7;
+}
+
+#btn-detail-remove-avatar {
+    background: #fbf5e7;
+    color: var(--color-accent);
+    border-color: var(--color-accent);
+}
+
+#btn-detail-remove-avatar:hover {
+    background: rgba(139, 38, 53, 0.08);
 }
 
 .detail-header-row {
