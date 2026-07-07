@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Gia Phả - Quản lý dòng họ</title>
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+<div class="app-shell">
+    <!-- ===================== SIDEBAR ĐIỀU HƯỚNG ===================== -->
+    <aside class="sidebar">
+        <div class="brand">
+            <div class="brand-seal" id="family-avatar-wrap" title="Ảnh đại diện gia phả">
+                <img id="family-avatar-img" class="brand-seal-img" src="" alt="Gia phả" hidden />
+                <span id="family-avatar-fallback">GP</span>
+            </div>
+            <div class="brand-title">GIA PHẢ</div>
+            <div class="brand-subtitle">Sổ dòng họ điện tử</div>
+        </div>
+        <nav class="nav">
+            <button class="nav-item active" data-tab="dashboard"><span class="nav-icon">◆</span> Tổng quan</button>
+            <button class="nav-item" data-tab="members"><span class="nav-icon">☰</span> Thành viên</button>
+            <button class="nav-item" data-tab="tree"><span class="nav-icon">⌂</span> Cây gia phả</button>
+            <button class="nav-item" data-tab="events"><span class="nav-icon">✦</span> Ngày giỗ / Sự kiện</button>
+        </nav>
+    </aside>
+
+    <!-- ===================== NỘI DUNG CHÍNH ===================== -->
+    <main class="main">
+
+        <!-- ---------- TAB: TỔNG QUAN ---------- -->
+        <section id="tab-dashboard" class="tab-content">
+            <div class="page-header">
+                <div>
+                    <h1 class="page-title">Tổng quan dòng họ</h1>
+                    <div class="page-subtitle">Thống kê nhanh về gia phả của bạn</div>
+                </div>
+            </div>
+            <div class="stats-grid" id="stats-grid"></div>
+            <div class="card">
+                <h3 class="card-title">Ảnh đại diện gia phả</h3>
+                <div class="avatar-upload-row">
+                    <div class="avatar avatar-lg" id="dashboard-family-avatar">
+                        <span class="avatar-fallback">GP</span>
+                    </div>
+                    <div class="avatar-upload-actions">
+                        <p class="avatar-hint">Ảnh hiển thị ở thanh điều hướng bên trái. Chấp nhận JPG, PNG, WEBP (tối đa 5MB).</p>
+                        <input type="file" id="family-avatar-input" accept="image/jpeg,image/png,image/webp,image/gif" hidden />
+                        <button type="button" class="btn" id="btn-change-family-avatar">Đổi ảnh gia phả</button>
+                        <button type="button" class="btn-secondary btn" id="btn-remove-family-avatar">Xóa ảnh</button>
+                    </div>
+                </div>
+            </div>
+            <div class="card">
+                <h3 class="card-title">Sự kiện sắp diễn ra</h3>
+                <div id="upcoming-events">Đang tải...</div>
+            </div>
+        </section>
+
+        <!-- ---------- TAB: THÀNH VIÊN ---------- -->
+        <section id="tab-members" class="tab-content" style="display:none">
+            <div class="page-header">
+                <div>
+                    <h1 class="page-title">Danh sách thành viên</h1>
+                    <div class="page-subtitle">Quản lý thông tin từng người trong dòng họ</div>
+                </div>
+                <button class="btn" id="btn-add-person">+ Thêm thành viên</button>
+            </div>
+            <div class="toolbar">
+                <input type="text" class="search-input" id="search-input" placeholder="Tìm theo tên..." />
+            </div>
+            <div id="members-table-wrap"></div>
+        </section>
+
+        <!-- ---------- TAB: CHI TIẾT THÀNH VIÊN ---------- -->
+        <section id="tab-detail" class="tab-content" style="display:none">
+            <div class="page-header">
+                <div>
+                    <h1 class="page-title" id="detail-name">Chi tiết thành viên</h1>
+                    <div class="page-subtitle" id="detail-subtitle"></div>
+                </div>
+                <div>
+                    <button class="btn-secondary btn" id="btn-back-members">← Quay lại danh sách</button>
+                    <button class="btn" id="btn-edit-person">Sửa thông tin</button>
+                </div>
+            </div>
+            <div id="detail-content"></div>
+        </section>
+
+        <!-- ---------- TAB: CÂY GIA PHẢ ---------- -->
+        <section id="tab-tree" class="tab-content" style="display:none">
+            <div class="page-header">
+                <div>
+                    <h1 class="page-title">Sơ đồ cây gia phả</h1>
+                    <div class="page-subtitle">Kéo để xem, nhấp vào 1 người để xem chi tiết</div>
+                </div>
+            </div>
+            <div class="tree-toolbar">
+                <label style="font-size:13px;color:var(--color-ink-soft)">Xem từ gốc:</label>
+                <select id="tree-root-select" class="search-input" style="max-width:280px"></select>
+                <button class="btn-secondary btn" id="btn-tree-reset">Xem toàn bộ dòng họ</button>
+            </div>
+            <div class="tree-canvas-wrap" id="tree-canvas-wrap"></div>
+        </section>
+
+        <!-- ---------- TAB: SỰ KIỆN ---------- -->
+        <section id="tab-events" class="tab-content" style="display:none">
+            <div class="page-header">
+                <div>
+                    <h1 class="page-title">Ngày giỗ &amp; Sự kiện</h1>
+                    <div class="page-subtitle">Theo dõi ngày giỗ, ngày kỵ và các sự kiện quan trọng</div>
+                </div>
+                <button class="btn" id="btn-add-event">+ Thêm sự kiện</button>
+            </div>
+            <div id="events-list"></div>
+        </section>
+
+    </main>
+</div>
+
+<!-- ===================== MODAL: THÊM/SỬA THÀNH VIÊN ===================== -->
+<div class="modal-overlay" id="person-modal">
+    <div class="modal">
+        <h3 class="modal-title" id="person-modal-title">Thêm thành viên</h3>
+        <form id="person-form">
+            <input type="hidden" id="person-id" />
+            <div class="avatar-upload-row" id="person-avatar-section" style="display:none">
+                <div class="avatar avatar-lg" id="person-modal-avatar">
+                    <span class="avatar-fallback">?</span>
+                </div>
+                <div class="avatar-upload-actions">
+                    <p class="avatar-hint">Ảnh đại diện thành viên</p>
+                    <input type="file" id="person-avatar-input" accept="image/jpeg,image/png,image/webp,image/gif" hidden />
+                    <button type="button" class="btn-secondary btn" id="btn-change-person-avatar">Đổi ảnh</button>
+                    <button type="button" class="btn-secondary btn" id="btn-remove-person-avatar">Xóa ảnh</button>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group full">
+                    <label>Họ và tên *</label>
+                    <input type="text" id="f-full_name" required />
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Biệt danh / tên gọi khác</label>
+                    <input type="text" id="f-nickname" />
+                </div>
+                <div class="form-group">
+                    <label>Giới tính</label>
+                    <select id="f-gender">
+                        <option value="male">Nam</option>
+                        <option value="female">Nữ</option>
+                        <option value="other">Khác</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Ngày sinh</label>
+                    <input type="date" id="f-birth_date" />
+                </div>
+                <div class="form-group">
+                    <label>Ghi chú ngày sinh</label>
+                    <input type="text" id="f-birth_date_note" placeholder="VD: âm lịch, khoảng năm..." />
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Còn sống?</label>
+                    <select id="f-is_alive">
+                        <option value="1">Còn sống</option>
+                        <option value="0">Đã mất</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Ngày mất</label>
+                    <input type="date" id="f-death_date" />
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Nơi sinh</label>
+                    <input type="text" id="f-birth_place" />
+                </div>
+                <div class="form-group">
+                    <label>Đời thứ (để trống = tự tính)</label>
+                    <input type="number" id="f-generation" min="0" />
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group full">
+                    <label>Nghề nghiệp</label>
+                    <input type="text" id="f-occupation" />
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group full">
+                    <label>Tiểu sử / ghi chú</label>
+                    <textarea id="f-biography"></textarea>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary btn" id="btn-cancel-person">Hủy</button>
+                <button type="submit" class="btn">Lưu lại</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ===================== MODAL: THÊM SỰ KIỆN ===================== -->
+<div class="modal-overlay" id="event-modal">
+    <div class="modal">
+        <h3 class="modal-title">Thêm sự kiện</h3>
+        <form id="event-form">
+            <div class="form-row">
+                <div class="form-group full">
+                    <label>Người liên quan *</label>
+                    <select id="e-person_id" required></select>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Loại sự kiện</label>
+                    <select id="e-event_type">
+                        <option value="death_anniversary">Ngày giỗ</option>
+                        <option value="birthday">Sinh nhật</option>
+                        <option value="custom">Khác</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Loại lịch</label>
+                    <select id="e-calendar_type">
+                        <option value="lunar">Âm lịch</option>
+                        <option value="solar">Dương lịch</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group full">
+                    <label>Ngày (VD: 12-03 hoặc 2026-03-12)</label>
+                    <input type="text" id="e-event_date" placeholder="MM-DD hoặc YYYY-MM-DD" />
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group full">
+                    <label>Mô tả</label>
+                    <textarea id="e-description"></textarea>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary btn" id="btn-cancel-event">Hủy</button>
+                <button type="submit" class="btn">Lưu lại</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ===================== MODAL: LIÊN KẾT QUAN HỆ ===================== -->
+<div class="modal-overlay" id="relation-modal">
+    <div class="modal">
+        <h3 class="modal-title">Thêm quan hệ gia đình</h3>
+        <form id="relation-form">
+            <div class="form-row">
+                <div class="form-group full">
+                    <label>Loại quan hệ</label>
+                    <select id="r-type">
+                        <option value="child">Thêm con cho người này</option>
+                        <option value="parent">Thêm cha/mẹ cho người này</option>
+                        <option value="spouse">Thêm vợ/chồng cho người này</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group full">
+                    <label>Chọn người *</label>
+                    <select id="r-other_person" required></select>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary btn" id="btn-cancel-relation">Hủy</button>
+                <button type="submit" class="btn">Liên kết</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script src="js/app.js"></script>
+</body>
+</html>
