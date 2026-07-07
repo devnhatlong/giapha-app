@@ -295,10 +295,13 @@ function openPersonModal(person) {
     } else {
         avatarSection.style.display = "none";
     }
+    SearchSelect.refresh(document.getElementById("f-gender"));
+    SearchSelect.refresh(document.getElementById("f-is_alive"));
     personModal.classList.add("open");
 }
 
 function closePersonModal() {
+    SearchSelect.closeAll();
     personModal.classList.remove("open");
 }
 
@@ -493,19 +496,29 @@ async function openRelationModal(mode) {
     document.getElementById("r-type").value = mode;
     const select = document.getElementById("r-other_person");
     const persons = await apiGet("/persons");
-    select.innerHTML = persons
-        .filter(p => p.id !== currentDetailId)
-        .map(p => `<option value="${p.id}">${p.full_name}</option>`)
-        .join("");
+    const filtered = persons.filter(p => p.id !== currentDetailId);
+    select.innerHTML = filtered.length
+        ? filtered.map(p => `<option value="${p.id}">${escapeHtml(p.full_name)}</option>`).join("")
+        : `<option value="" disabled>Chưa có người khác để chọn</option>`;
+    SearchSelect.refresh(document.getElementById("r-type"));
+    SearchSelect.refresh(select);
+    SearchSelect.closeAll();
     relationModal.classList.add("open");
 }
 
 document.getElementById("r-type").addEventListener("change", (e) => (relationMode = e.target.value));
-document.getElementById("btn-cancel-relation").addEventListener("click", () => relationModal.classList.remove("open"));
+document.getElementById("btn-cancel-relation").addEventListener("click", () => {
+    SearchSelect.closeAll();
+    relationModal.classList.remove("open");
+});
 
 document.getElementById("relation-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const otherId = parseInt(document.getElementById("r-other_person").value);
+    if (!otherId) {
+        alert("Vui lòng chọn một thành viên.");
+        return;
+    }
 
     if (relationMode === "child") {
         await apiSend("/relationships/parent-child", "POST", { parent_id: currentDetailId, child_id: otherId });
@@ -556,11 +569,17 @@ async function deleteEvent(id) {
 const eventModal = document.getElementById("event-modal");
 document.getElementById("btn-add-event").addEventListener("click", async () => {
     const persons = await apiGet("/persons");
-    document.getElementById("e-person_id").innerHTML = persons.map(p => `<option value="${p.id}">${p.full_name}</option>`).join("");
+    const sel = document.getElementById("e-person_id");
+    sel.innerHTML = persons.map(p => `<option value="${p.id}">${escapeHtml(p.full_name)}</option>`).join("");
     document.getElementById("event-form").reset();
+    SearchSelect.refresh(sel);
+    SearchSelect.closeAll();
     eventModal.classList.add("open");
 });
-document.getElementById("btn-cancel-event").addEventListener("click", () => eventModal.classList.remove("open"));
+document.getElementById("btn-cancel-event").addEventListener("click", () => {
+    SearchSelect.closeAll();
+    eventModal.classList.remove("open");
+});
 
 document.getElementById("event-form").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -578,12 +597,30 @@ document.getElementById("event-form").addEventListener("submit", async (e) => {
 // ============================================================
 // TAB: CÂY GIA PHẢ (vẽ bằng SVG thuần, không cần thư viện ngoài)
 // ============================================================
-const NODE_W = 175;
-const NODE_H = 56;
-const H_GAP = 30;
-const V_GAP = 90;
-const NODE_AVATAR_SIZE = 32;
-const NODE_TEXT_X = 48;
+const NODE_W = 190;
+const NODE_H = 68;
+const H_GAP = 46;
+const V_GAP = 120;
+const NODE_TOP = 40;
+const NODE_AVATAR_R = 20;
+const NODE_AVATAR_CX = 34;
+const NODE_TEXT_X = 64;
+
+function treeGenderColor(gender) {
+    if (gender === "male") return "#4A6B87";
+    if (gender === "female") return "#A65275";
+    return "#8A7F6B";
+}
+
+function treeAvatarInitial(name) {
+    const parts = name.trim().split(/\s+/);
+    return (parts[parts.length - 1]?.[0] || "?").toUpperCase();
+}
+
+function formatTreeYears(p) {
+    const end = p.is_alive ? "nay" : formatYear(p.death_date);
+    return `${formatYear(p.birth_date)} — ${end}`;
+}
 
 async function loadTree() {
     const data = await apiGet("/tree");
@@ -591,9 +628,10 @@ async function loadTree() {
 
     const select = document.getElementById("tree-root-select");
     select.innerHTML = `<option value="">-- Chọn người làm gốc --</option>` +
-        persons.map(p => `<option value="${p.id}">${p.full_name}</option>`).join("");
+        persons.map(p => `<option value="${p.id}">${escapeHtml(p.full_name)}</option>`).join("");
 
     drawTree(data, null);
+    SearchSelect.refresh(select);
 
     select.onchange = () => {
         const rootId = select.value ? parseInt(select.value) : null;
@@ -602,7 +640,9 @@ async function loadTree() {
 }
 
 document.getElementById("btn-tree-reset").addEventListener("click", () => {
-    document.getElementById("tree-root-select").value = "";
+    const sel = document.getElementById("tree-root-select");
+    sel.value = "";
+    SearchSelect.refresh(sel);
     loadTree();
 });
 
@@ -610,19 +650,17 @@ function drawTree(data, rootId) {
     const { persons, parent_child, marriages } = data;
     const byId = Object.fromEntries(persons.map(p => [p.id, p]));
 
-    // B1: Xây map con cái theo từng cha/mẹ
-    const childrenOf = {}; // parent_id -> [child_id,...]
+    const childrenOf = {};
     parent_child.forEach(link => {
         if (!childrenOf[link.parent_id]) childrenOf[link.parent_id] = [];
         childrenOf[link.parent_id].push(link.child_id);
     });
-    const parentsOf = {}; // child_id -> [parent_id,...]
+    const parentsOf = {};
     parent_child.forEach(link => {
         if (!parentsOf[link.child_id]) parentsOf[link.child_id] = [];
         parentsOf[link.child_id].push(link.parent_id);
     });
 
-    // B2: Xác định tập hợp người sẽ hiển thị (toàn bộ, hoặc chỉ hậu duệ của rootId)
     let visibleIds = new Set(persons.map(p => p.id));
     if (rootId) {
         visibleIds = new Set();
@@ -635,7 +673,6 @@ function drawTree(data, rootId) {
         }
     }
 
-    // B3: Tính "đời" (generation) cho từng người bằng cách lan truyền từ người không có cha/mẹ
     const generation = {};
     const noParent = persons.filter(p => !parentsOf[p.id] || parentsOf[p.id].length === 0);
     noParent.forEach(p => (generation[p.id] = p.generation ?? 0));
@@ -655,10 +692,8 @@ function drawTree(data, rootId) {
             }
         });
     }
-    // Người còn lại chưa có generation (mồ côi dữ liệu) -> gán 0
     persons.forEach(p => { if (generation[p.id] == null) generation[p.id] = p.generation ?? 0; });
 
-    // B4: Nhóm theo generation, chỉ lấy người visible
     const rows = {};
     persons.filter(p => visibleIds.has(p.id)).forEach(p => {
         const g = generation[p.id];
@@ -667,23 +702,39 @@ function drawTree(data, rootId) {
     });
     const genLevels = Object.keys(rows).map(Number).sort((a, b) => a - b);
 
-    // B5: Gán tọa độ x ban đầu theo thứ tự, rồi tinh chỉnh theo vị trí trung bình của cha/mẹ
     const posX = {};
     genLevels.forEach(g => {
-        rows[g].sort((a, b) => byId[a].full_name.localeCompare(byId[b].full_name));
-        rows[g].forEach((id, idx) => { posX[id] = idx * (NODE_W + H_GAP); });
+        const row = rows[g];
+        const placed = new Set();
+        const ordered = [];
+        row.sort((a, b) => byId[a].full_name.localeCompare(byId[b].full_name));
+        row.forEach(id => {
+            if (placed.has(id)) return;
+            ordered.push(id);
+            placed.add(id);
+            const spouse = marriages.find(m =>
+                (m.person1_id === id && row.includes(m.person2_id)) ||
+                (m.person2_id === id && row.includes(m.person1_id))
+            );
+            if (spouse) {
+                const sid = spouse.person1_id === id ? spouse.person2_id : spouse.person1_id;
+                if (!placed.has(sid)) {
+                    ordered.push(sid);
+                    placed.add(sid);
+                }
+            }
+        });
+        ordered.forEach((id, idx) => { posX[id] = idx * (NODE_W + H_GAP); });
     });
-    // Tinh chỉnh 2 lượt: đặt lại theo trung bình x của cha/mẹ để cây gọn hơn
+
     for (let pass = 0; pass < 2; pass++) {
         genLevels.forEach(g => {
             rows[g].forEach(id => {
                 const parents = (parentsOf[id] || []).filter(pid => posX[pid] != null);
                 if (parents.length > 0) {
-                    const avg = parents.reduce((s, pid) => s + posX[pid], 0) / parents.length;
-                    posX[id] = avg;
+                    posX[id] = parents.reduce((s, pid) => s + posX[pid], 0) / parents.length;
                 }
             });
-            // Tránh chồng lấn: sắp lại theo posX rồi ép khoảng cách tối thiểu
             rows[g].sort((a, b) => posX[a] - posX[b]);
             rows[g].forEach((id, idx) => {
                 if (idx === 0) return;
@@ -694,76 +745,80 @@ function drawTree(data, rootId) {
         });
     }
 
-    // Bù cho tọa độ âm (nếu có) để toàn bộ cây nằm trong vùng dương
     const minPosX = Math.min(...Object.values(posX));
-    if (minPosX < 0) Object.keys(posX).forEach(id => (posX[id] -= minPosX));
+    Object.keys(posX).forEach(id => { posX[id] -= minPosX; });
 
-    const maxX = Math.max(...Object.values(posX)) + NODE_W + 60;
-    const maxY = (genLevels.length + 1) * V_GAP + 60;
+    const contentWidth = Math.max(...Object.values(posX)) + NODE_W;
+    const canvasWidth = Math.max(contentWidth + 80, 900);
+    const offsetX = (canvasWidth - contentWidth) / 2;
+    const canvasHeight = genLevels.length * V_GAP + NODE_H + 60;
 
-    // B6: Dựng SVG
     let svgDefs = "<defs>";
     persons.filter(p => visibleIds.has(p.id) && p.avatar_path).forEach(p => {
-        svgDefs += `<clipPath id="clip-${p.id}"><circle cx="0" cy="0" r="${NODE_AVATAR_SIZE / 2}" /></clipPath>`;
+        svgDefs += `<clipPath id="clip-${p.id}"><circle cx="0" cy="0" r="${NODE_AVATAR_R}" /></clipPath>`;
     });
     svgDefs += "</defs>";
 
-    let svg = `<svg width="${maxX}" height="${maxY}" xmlns="http://www.w3.org/2000/svg">${svgDefs}`;
+    let svg = `<svg width="${canvasWidth}" height="${canvasHeight}" xmlns="http://www.w3.org/2000/svg">${svgDefs}`;
 
-    // Vẽ đường nối cha/mẹ -> con trước (để nằm dưới các thẻ)
     parent_child.forEach(link => {
         if (!visibleIds.has(link.parent_id) || !visibleIds.has(link.child_id)) return;
-        const px = posX[link.parent_id] + NODE_W / 2;
-        const py = generation[link.parent_id] * V_GAP + 60 + NODE_H;
-        const cx = posX[link.child_id] + NODE_W / 2;
-        const cy = generation[link.child_id] * V_GAP + 60;
+        const px = posX[link.parent_id] + offsetX + NODE_W / 2;
+        const py = generation[link.parent_id] * V_GAP + NODE_TOP + NODE_H;
+        const cx = posX[link.child_id] + offsetX + NODE_W / 2;
+        const cy = generation[link.child_id] * V_GAP + NODE_TOP;
         const midY = (py + cy) / 2;
         svg += `<path class="edge-line" d="M ${px} ${py} C ${px} ${midY}, ${cx} ${midY}, ${cx} ${cy}" />`;
     });
 
-    // Vẽ đường nối vợ/chồng
     marriages.forEach(m => {
         if (!visibleIds.has(m.person1_id) || !visibleIds.has(m.person2_id)) return;
-        const g1 = generation[m.person1_id], g2 = generation[m.person2_id];
-        if (g1 !== g2) return; // chỉ nối nếu cùng hàng (trường hợp thường gặp)
-        const x1 = posX[m.person1_id] + NODE_W;
-        const x2 = posX[m.person2_id];
-        const y = g1 * V_GAP + 60 + NODE_H / 2;
+        const g1 = generation[m.person1_id];
+        const g2 = generation[m.person2_id];
+        if (g1 !== g2) return;
+        const leftId = posX[m.person1_id] < posX[m.person2_id] ? m.person1_id : m.person2_id;
+        const rightId = leftId === m.person1_id ? m.person2_id : m.person1_id;
+        const x1 = posX[leftId] + offsetX + NODE_W;
+        const x2 = posX[rightId] + offsetX;
+        const y = g1 * V_GAP + NODE_TOP + NODE_H / 2;
         if (x2 > x1) {
             svg += `<line class="marriage-line" x1="${x1}" y1="${y}" x2="${x2}" y2="${y}" />`;
+            svg += `<circle class="marriage-dot" cx="${(x1 + x2) / 2}" cy="${y}" r="6" />`;
         }
     });
 
-    // Vẽ từng thẻ người
     persons.filter(p => visibleIds.has(p.id)).forEach(p => {
-        const x = posX[p.id];
-        const y = generation[p.id] * V_GAP + 60;
-        const genderClass = p.gender === "male" ? "male" : p.gender === "female" ? "female" : "";
-        const avatarX = x + 8 + NODE_AVATAR_SIZE / 2;
-        const avatarY = y + 12 + NODE_AVATAR_SIZE / 2;
+        const x = posX[p.id] + offsetX;
+        const y = generation[p.id] * V_GAP + NODE_TOP;
+        const avatarCx = x + NODE_AVATAR_CX;
+        const avatarCy = y + NODE_H / 2;
+        const alive = p.is_alive === 1 || p.is_alive === true;
+        const deceasedClass = alive ? "" : " deceased";
+        const genderColor = treeGenderColor(p.gender);
+
         let avatarSvg;
         if (p.avatar_path) {
             avatarSvg = `
-                <g transform="translate(${avatarX}, ${avatarY})">
-                    <image href="/uploads/${p.avatar_path}" x="${-NODE_AVATAR_SIZE / 2}" y="${-NODE_AVATAR_SIZE / 2}"
-                        width="${NODE_AVATAR_SIZE}" height="${NODE_AVATAR_SIZE}" clip-path="url(#clip-${p.id})"
+                <circle cx="${avatarCx}" cy="${avatarCy}" r="${NODE_AVATAR_R}" fill="${genderColor}" />
+                <g transform="translate(${avatarCx}, ${avatarCy})">
+                    <image href="/uploads/${p.avatar_path}" x="${-NODE_AVATAR_R}" y="${-NODE_AVATAR_R}"
+                        width="${NODE_AVATAR_R * 2}" height="${NODE_AVATAR_R * 2}" clip-path="url(#clip-${p.id})"
                         preserveAspectRatio="xMidYMid slice" />
                 </g>`;
         } else {
             avatarSvg = `
-                <circle class="node-avatar-bg" cx="${avatarX}" cy="${avatarY}" r="${NODE_AVATAR_SIZE / 2}" />
-                <text class="node-avatar-text" x="${avatarX}" y="${avatarY}">${escapeHtml(avatarInitials(p.full_name))}</text>`;
+                <circle cx="${avatarCx}" cy="${avatarCy}" r="${NODE_AVATAR_R}" fill="${genderColor}" />
+                <text class="node-avatar-letter" x="${avatarCx}" y="${avatarCy}">${escapeHtml(treeAvatarInitial(p.full_name))}</text>`;
         }
+
         svg += `
-            <g class="tree-node-card" onclick="openDetailFromTree(${p.id})">
-                <rect class="card-bg ${genderClass}" x="${x}" y="${y}" width="${NODE_W}" height="${NODE_H}" rx="6" />
+            <g class="tree-node-card${deceasedClass}" onclick="openDetailFromTree(${p.id})">
+                <rect class="card-bg" x="${x}" y="${y}" width="${NODE_W}" height="${NODE_H}" rx="8" />
                 ${avatarSvg}
-                <text class="node-name" x="${x + NODE_TEXT_X}" y="${y + 22}">${escapeHtml(truncate(p.full_name, 16))}</text>
-                <text class="node-years" x="${x + NODE_TEXT_X}" y="${y + 40}">${formatYear(p.birth_date)} - ${p.is_alive ? "nay" : formatYear(p.death_date)}</text>
-                <g class="gen-badge" transform="translate(${x + NODE_W - 20}, ${y + 14})">
-                    <circle r="11" />
-                    <text x="0" y="4" text-anchor="middle">${generation[p.id]}</text>
-                </g>
+                <text class="node-name" x="${x + NODE_TEXT_X}" y="${y + 27}">${escapeHtml(truncate(p.full_name, 18))}</text>
+                <text class="node-years" x="${x + NODE_TEXT_X}" y="${y + 45}">${formatTreeYears(p)}</text>
+                <rect x="${x + NODE_W - 58}" y="${y + NODE_H - 22}" width="50" height="16" rx="8" fill="rgba(139,38,53,0.1)" />
+                <text class="gen-label" x="${x + NODE_W - 33}" y="${y + NODE_H - 10}">Đời ${generation[p.id]}</text>
             </g>
         `;
     });
@@ -774,7 +829,7 @@ function drawTree(data, rootId) {
     if (persons.filter(p => visibleIds.has(p.id)).length === 0) {
         wrap.innerHTML = `<div class="empty-state"><div class="empty-icon">⌂</div>Chưa có dữ liệu để vẽ cây gia phả. Hãy thêm thành viên và thiết lập quan hệ trước.</div>`;
     } else {
-        wrap.innerHTML = svg;
+        wrap.innerHTML = `<div class="tree-svg-center" style="min-width:${canvasWidth}px">${svg}</div>`;
     }
 }
 

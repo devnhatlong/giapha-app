@@ -100,10 +100,15 @@
             </div>
             <div class="tree-toolbar">
                 <label style="font-size:13px;color:var(--color-ink-soft)">Xem từ gốc:</label>
-                <select id="tree-root-select" class="search-input" style="max-width:280px"></select>
+                <select id="tree-root-select" class="search-input search-select"></select>
                 <button class="btn-secondary btn" id="btn-tree-reset">Xem toàn bộ dòng họ</button>
             </div>
             <div class="tree-canvas-wrap" id="tree-canvas-wrap"></div>
+            <div class="tree-legend">
+                <span><span class="tree-legend-dot male"></span> Nam</span>
+                <span><span class="tree-legend-dot female"></span> Nữ</span>
+                <span><span class="tree-legend-dot deceased"></span> Đã mất (mờ nhẹ)</span>
+            </div>
         </section>
 
         <!-- ---------- TAB: SỰ KIỆN ---------- -->
@@ -151,7 +156,7 @@
                 </div>
                 <div class="form-group">
                     <label>Giới tính</label>
-                    <select id="f-gender">
+                    <select id="f-gender" class="search-select">
                         <option value="male">Nam</option>
                         <option value="female">Nữ</option>
                         <option value="other">Khác</option>
@@ -171,7 +176,7 @@
             <div class="form-row">
                 <div class="form-group">
                     <label>Còn sống?</label>
-                    <select id="f-is_alive">
+                    <select id="f-is_alive" class="search-select">
                         <option value="1">Còn sống</option>
                         <option value="0">Đã mất</option>
                     </select>
@@ -219,13 +224,13 @@
             <div class="form-row">
                 <div class="form-group full">
                     <label>Người liên quan *</label>
-                    <select id="e-person_id" required></select>
+                    <select id="e-person_id" class="search-select" required></select>
                 </div>
             </div>
             <div class="form-row">
                 <div class="form-group">
                     <label>Loại sự kiện</label>
-                    <select id="e-event_type">
+                    <select id="e-event_type" class="search-select">
                         <option value="death_anniversary">Ngày giỗ</option>
                         <option value="birthday">Sinh nhật</option>
                         <option value="custom">Khác</option>
@@ -233,7 +238,7 @@
                 </div>
                 <div class="form-group">
                     <label>Loại lịch</label>
-                    <select id="e-calendar_type">
+                    <select id="e-calendar_type" class="search-select">
                         <option value="lunar">Âm lịch</option>
                         <option value="solar">Dương lịch</option>
                     </select>
@@ -267,7 +272,7 @@
             <div class="form-row">
                 <div class="form-group full">
                     <label>Loại quan hệ</label>
-                    <select id="r-type">
+                    <select id="r-type" class="search-select">
                         <option value="child">Thêm con cho người này</option>
                         <option value="parent">Thêm cha/mẹ cho người này</option>
                         <option value="spouse">Thêm vợ/chồng cho người này</option>
@@ -277,7 +282,7 @@
             <div class="form-row">
                 <div class="form-group full">
                     <label>Chọn người *</label>
-                    <select id="r-other_person" required></select>
+                    <select id="r-other_person" class="search-select" required></select>
                 </div>
             </div>
             <div class="modal-actions">
@@ -288,6 +293,7 @@
     </div>
 </div>
 
+<script src="js/search-select.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>
