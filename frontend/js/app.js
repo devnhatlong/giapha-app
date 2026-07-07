@@ -622,6 +622,240 @@ function formatTreeYears(p) {
     return `${formatYear(p.birth_date)} — ${end}`;
 }
 
+function treeNodeCenterX(id, posX, offsetX) {
+    return posX[id] + offsetX + NODE_W / 2;
+}
+
+function treeAreMarried(a, b, marriages) {
+    return marriages.some(
+        (m) => (m.person1_id === a && m.person2_id === b) || (m.person1_id === b && m.person2_id === a)
+    );
+}
+
+function treeBuildSpouseMap(marriages, visibleIds) {
+    const map = {};
+    marriages.forEach((m) => {
+        if (!visibleIds.has(m.person1_id) || !visibleIds.has(m.person2_id)) return;
+        map[m.person1_id] = m.person2_id;
+        map[m.person2_id] = m.person1_id;
+    });
+    return map;
+}
+
+function treeResolveFamilyUnit(parentIds, spouseMap, visibleIds) {
+    for (const p of parentIds) {
+        const sp = spouseMap[p];
+        if (sp && visibleIds.has(sp)) {
+            return { type: "couple", ids: [Math.min(p, sp), Math.max(p, sp)] };
+        }
+    }
+    if (parentIds.length === 1) {
+        const sp = spouseMap[parentIds[0]];
+        if (sp && visibleIds.has(sp)) {
+            const p = parentIds[0];
+            return { type: "couple", ids: [Math.min(p, sp), Math.max(p, sp)] };
+        }
+        return { type: "single", ids: [parentIds[0]] };
+    }
+    return { type: "multi", ids: [...parentIds].sort((a, b) => a - b) };
+}
+
+/** Gom con theo đơn vị gia đình (vợ chồng = một nhóm con chung). */
+function treeBuildFamilyGroups(persons, parentsOf, marriages, visibleIds, generation) {
+    const spouseMap = treeBuildSpouseMap(marriages, visibleIds);
+    const groups = new Map();
+
+    persons.filter((p) => visibleIds.has(p.id)).forEach((child) => {
+        let parentIds = (parentsOf[child.id] || []).filter((pid) => visibleIds.has(pid));
+        parentIds = parentIds.filter(
+            (pid) =>
+                !treeAreMarried(pid, child.id, marriages) &&
+                generation[child.id] === generation[pid] + 1
+        );
+        if (parentIds.length === 0) return;
+
+        const unit = treeResolveFamilyUnit(parentIds, spouseMap, visibleIds);
+        let key;
+        if (unit.type === "couple") key = `c-${unit.ids[0]}-${unit.ids[1]}`;
+        else if (unit.type === "single") key = `p-${unit.ids[0]}`;
+        else key = `m-${unit.ids.join("-")}`;
+
+        if (!groups.has(key)) groups.set(key, { unit, childIds: [] });
+        groups.get(key).childIds.push(child.id);
+    });
+
+    return groups;
+}
+
+function treeFamilyAnchorX(unit, posX, offsetX, marriages) {
+    if (unit.type === "couple") {
+        return (treeNodeCenterX(unit.ids[0], posX, offsetX) + treeNodeCenterX(unit.ids[1], posX, offsetX)) / 2;
+    }
+    return unit.ids.reduce((s, pid) => s + treeNodeCenterX(pid, posX, offsetX), 0) / unit.ids.length;
+}
+
+function treeFamilyParentY(unit, generation) {
+    if (unit.type === "couple") {
+        return generation[unit.ids[0]] * V_GAP + NODE_TOP + NODE_H;
+    }
+    return Math.max(...unit.ids.map((pid) => generation[pid] * V_GAP + NODE_TOP + NODE_H));
+}
+
+function treeComputeGenerations(persons, parent_child, marriages, visibleIds, parentsOf) {
+    const generation = {};
+    persons
+        .filter((p) => visibleIds.has(p.id) && (!parentsOf[p.id] || parentsOf[p.id].length === 0))
+        .forEach((p) => (generation[p.id] = p.generation ?? 0));
+
+    let changed = true;
+    let safety = 0;
+    while (changed && safety++ < 80) {
+        changed = false;
+        parent_child.forEach((link) => {
+            if (!visibleIds.has(link.parent_id) || !visibleIds.has(link.child_id)) return;
+            if (generation[link.parent_id] != null) {
+                const g = generation[link.parent_id] + 1;
+                if (generation[link.child_id] == null || generation[link.child_id] < g) {
+                    generation[link.child_id] = g;
+                    changed = true;
+                }
+            }
+        });
+        marriages.forEach((m) => {
+            if (!visibleIds.has(m.person1_id) || !visibleIds.has(m.person2_id)) return;
+            const g1 = generation[m.person1_id];
+            const g2 = generation[m.person2_id];
+            if (g1 != null && g2 != null && g1 !== g2) {
+                const g = Math.min(g1, g2);
+                generation[m.person1_id] = g;
+                generation[m.person2_id] = g;
+                changed = true;
+            } else if (g1 != null && g2 == null) {
+                generation[m.person2_id] = g1;
+                changed = true;
+            } else if (g2 != null && g1 == null) {
+                generation[m.person1_id] = g2;
+                changed = true;
+            }
+        });
+    }
+    persons.filter((p) => visibleIds.has(p.id)).forEach((p) => {
+        if (generation[p.id] == null) generation[p.id] = p.generation ?? 0;
+    });
+    return generation;
+}
+
+function treeResolveRowCollisions(rowIds, posX) {
+    rowIds.sort((a, b) => posX[a] - posX[b]);
+    for (let i = 1; i < rowIds.length; i++) {
+        const prevId = rowIds[i - 1];
+        const curId = rowIds[i];
+        const minX = posX[prevId] + NODE_W + H_GAP;
+        if (posX[curId] < minX) posX[curId] = minX;
+    }
+}
+
+function treeLayoutPositions(rows, genLevels, familyGroups, marriages, visibleIds, byId, generation, posX) {
+    genLevels.forEach((g) => {
+        const row = rows[g];
+        const placed = new Set();
+        const ordered = [];
+        row.sort((a, b) => byId[a].full_name.localeCompare(byId[b].full_name));
+        row.forEach((id) => {
+            if (placed.has(id)) return;
+            ordered.push(id);
+            placed.add(id);
+            const spouse = marriages.find(
+                (m) =>
+                    (m.person1_id === id && row.includes(m.person2_id)) ||
+                    (m.person2_id === id && row.includes(m.person1_id))
+            );
+            if (spouse) {
+                const sid = spouse.person1_id === id ? spouse.person2_id : spouse.person1_id;
+                if (!placed.has(sid)) {
+                    ordered.push(sid);
+                    placed.add(sid);
+                }
+            }
+        });
+        ordered.forEach((id, idx) => {
+            posX[id] = idx * (NODE_W + H_GAP);
+        });
+    });
+
+    genLevels.forEach((g) => {
+        if (g === 0) return;
+
+        familyGroups.forEach(({ unit, childIds }) => {
+            const childGen = generation[childIds[0]];
+            if (childGen !== g) return;
+
+            childIds.sort((a, b) => byId[a].full_name.localeCompare(byId[b].full_name));
+            const anchorCenter = treeFamilyAnchorX(unit, posX, 0, marriages);
+            const totalW = childIds.length * NODE_W + (childIds.length - 1) * H_GAP;
+            let startX = anchorCenter - totalW / 2;
+            childIds.forEach((id, i) => {
+                posX[id] = startX + i * (NODE_W + H_GAP);
+            });
+        });
+
+        treeResolveRowCollisions(rows[g], posX);
+    });
+
+    return posX;
+}
+
+function treeDrawConnectors(familyGroups, generation, posX, offsetX, visibleIds, marriages) {
+    let out = "";
+    const drawnMarriages = new Set();
+
+    const drawMarriageLine = (p1, p2) => {
+        const mk = [p1, p2].sort((a, b) => a - b).join("-");
+        if (drawnMarriages.has(mk)) return;
+        drawnMarriages.add(mk);
+        const leftId = posX[p1] < posX[p2] ? p1 : p2;
+        const rightId = leftId === p1 ? p2 : p1;
+        const x1 = posX[leftId] + offsetX + NODE_W;
+        const x2 = posX[rightId] + offsetX;
+        const y = generation[leftId] * V_GAP + NODE_TOP + NODE_H / 2;
+        if (x2 > x1) {
+            out += `<line class="marriage-line" x1="${x1}" y1="${y}" x2="${x2}" y2="${y}" />`;
+            out += `<circle class="marriage-dot" cx="${(x1 + x2) / 2}" cy="${y}" r="6" />`;
+        }
+    };
+
+    familyGroups.forEach(({ unit, childIds }) => {
+        childIds.sort((a, b) => posX[a] - posX[b]);
+        if (unit.type === "couple") drawMarriageLine(unit.ids[0], unit.ids[1]);
+
+        const childCenters = childIds.map((id) => treeNodeCenterX(id, posX, offsetX));
+        const childY = generation[childIds[0]] * V_GAP + NODE_TOP;
+        const anchorX = treeFamilyAnchorX(unit, posX, offsetX, marriages);
+        const parentY = treeFamilyParentY(unit, generation);
+        const forkY = parentY + (childY - parentY) * 0.5;
+
+        if (childIds.length === 1) {
+            const cx = childCenters[0];
+            out += `<path class="edge-line" d="M ${anchorX} ${parentY} L ${anchorX} ${forkY} L ${cx} ${forkY} L ${cx} ${childY}" />`;
+        } else {
+            const leftX = Math.min(...childCenters);
+            const rightX = Math.max(...childCenters);
+            out += `<path class="edge-line" d="M ${anchorX} ${parentY} L ${anchorX} ${forkY} L ${leftX} ${forkY} L ${rightX} ${forkY}" />`;
+            childCenters.forEach((cx) => {
+                out += `<path class="edge-line" d="M ${cx} ${forkY} L ${cx} ${childY}" />`;
+            });
+        }
+    });
+
+    marriages.forEach((m) => {
+        if (!visibleIds.has(m.person1_id) || !visibleIds.has(m.person2_id)) return;
+        if (generation[m.person1_id] !== generation[m.person2_id]) return;
+        drawMarriageLine(m.person1_id, m.person2_id);
+    });
+
+    return out;
+}
+
 async function loadTree() {
     const data = await apiGet("/tree");
     const persons = data.persons;
@@ -648,20 +882,20 @@ document.getElementById("btn-tree-reset").addEventListener("click", () => {
 
 function drawTree(data, rootId) {
     const { persons, parent_child, marriages } = data;
-    const byId = Object.fromEntries(persons.map(p => [p.id, p]));
+    const byId = Object.fromEntries(persons.map((p) => [p.id, p]));
 
     const childrenOf = {};
-    parent_child.forEach(link => {
+    parent_child.forEach((link) => {
         if (!childrenOf[link.parent_id]) childrenOf[link.parent_id] = [];
         childrenOf[link.parent_id].push(link.child_id);
     });
     const parentsOf = {};
-    parent_child.forEach(link => {
+    parent_child.forEach((link) => {
         if (!parentsOf[link.child_id]) parentsOf[link.child_id] = [];
         parentsOf[link.child_id].push(link.parent_id);
     });
 
-    let visibleIds = new Set(persons.map(p => p.id));
+    let visibleIds = new Set(persons.map((p) => p.id));
     if (rootId) {
         visibleIds = new Set();
         const queue = [rootId];
@@ -669,84 +903,28 @@ function drawTree(data, rootId) {
             const cur = queue.shift();
             if (visibleIds.has(cur)) continue;
             visibleIds.add(cur);
-            (childrenOf[cur] || []).forEach(c => queue.push(c));
+            (childrenOf[cur] || []).forEach((c) => queue.push(c));
         }
     }
 
-    const generation = {};
-    const noParent = persons.filter(p => !parentsOf[p.id] || parentsOf[p.id].length === 0);
-    noParent.forEach(p => (generation[p.id] = p.generation ?? 0));
-
-    let changed = true;
-    let safety = 0;
-    while (changed && safety < 50) {
-        changed = false;
-        safety++;
-        parent_child.forEach(link => {
-            if (generation[link.parent_id] != null) {
-                const g = generation[link.parent_id] + 1;
-                if (generation[link.child_id] == null || generation[link.child_id] < g) {
-                    generation[link.child_id] = g;
-                    changed = true;
-                }
-            }
-        });
-    }
-    persons.forEach(p => { if (generation[p.id] == null) generation[p.id] = p.generation ?? 0; });
+    const generation = treeComputeGenerations(persons, parent_child, marriages, visibleIds, parentsOf);
 
     const rows = {};
-    persons.filter(p => visibleIds.has(p.id)).forEach(p => {
+    persons.filter((p) => visibleIds.has(p.id)).forEach((p) => {
         const g = generation[p.id];
         if (!rows[g]) rows[g] = [];
         rows[g].push(p.id);
     });
     const genLevels = Object.keys(rows).map(Number).sort((a, b) => a - b);
 
+    const familyGroups = treeBuildFamilyGroups(persons, parentsOf, marriages, visibleIds, generation);
     const posX = {};
-    genLevels.forEach(g => {
-        const row = rows[g];
-        const placed = new Set();
-        const ordered = [];
-        row.sort((a, b) => byId[a].full_name.localeCompare(byId[b].full_name));
-        row.forEach(id => {
-            if (placed.has(id)) return;
-            ordered.push(id);
-            placed.add(id);
-            const spouse = marriages.find(m =>
-                (m.person1_id === id && row.includes(m.person2_id)) ||
-                (m.person2_id === id && row.includes(m.person1_id))
-            );
-            if (spouse) {
-                const sid = spouse.person1_id === id ? spouse.person2_id : spouse.person1_id;
-                if (!placed.has(sid)) {
-                    ordered.push(sid);
-                    placed.add(sid);
-                }
-            }
-        });
-        ordered.forEach((id, idx) => { posX[id] = idx * (NODE_W + H_GAP); });
-    });
-
-    for (let pass = 0; pass < 2; pass++) {
-        genLevels.forEach(g => {
-            rows[g].forEach(id => {
-                const parents = (parentsOf[id] || []).filter(pid => posX[pid] != null);
-                if (parents.length > 0) {
-                    posX[id] = parents.reduce((s, pid) => s + posX[pid], 0) / parents.length;
-                }
-            });
-            rows[g].sort((a, b) => posX[a] - posX[b]);
-            rows[g].forEach((id, idx) => {
-                if (idx === 0) return;
-                const prevId = rows[g][idx - 1];
-                const minX = posX[prevId] + NODE_W + H_GAP;
-                if (posX[id] < minX) posX[id] = minX;
-            });
-        });
-    }
+    treeLayoutPositions(rows, genLevels, familyGroups, marriages, visibleIds, byId, generation, posX);
 
     const minPosX = Math.min(...Object.values(posX));
-    Object.keys(posX).forEach(id => { posX[id] -= minPosX; });
+    Object.keys(posX).forEach((id) => {
+        posX[id] -= minPosX;
+    });
 
     const contentWidth = Math.max(...Object.values(posX)) + NODE_W;
     const canvasWidth = Math.max(contentWidth + 80, 900);
@@ -754,38 +932,14 @@ function drawTree(data, rootId) {
     const canvasHeight = genLevels.length * V_GAP + NODE_H + 60;
 
     let svgDefs = "<defs>";
-    persons.filter(p => visibleIds.has(p.id) && p.avatar_path).forEach(p => {
+    persons.filter((p) => visibleIds.has(p.id) && p.avatar_path).forEach((p) => {
         svgDefs += `<clipPath id="clip-${p.id}"><circle cx="0" cy="0" r="${NODE_AVATAR_R}" /></clipPath>`;
     });
     svgDefs += "</defs>";
 
     let svg = `<svg width="${canvasWidth}" height="${canvasHeight}" xmlns="http://www.w3.org/2000/svg">${svgDefs}`;
 
-    parent_child.forEach(link => {
-        if (!visibleIds.has(link.parent_id) || !visibleIds.has(link.child_id)) return;
-        const px = posX[link.parent_id] + offsetX + NODE_W / 2;
-        const py = generation[link.parent_id] * V_GAP + NODE_TOP + NODE_H;
-        const cx = posX[link.child_id] + offsetX + NODE_W / 2;
-        const cy = generation[link.child_id] * V_GAP + NODE_TOP;
-        const midY = (py + cy) / 2;
-        svg += `<path class="edge-line" d="M ${px} ${py} C ${px} ${midY}, ${cx} ${midY}, ${cx} ${cy}" />`;
-    });
-
-    marriages.forEach(m => {
-        if (!visibleIds.has(m.person1_id) || !visibleIds.has(m.person2_id)) return;
-        const g1 = generation[m.person1_id];
-        const g2 = generation[m.person2_id];
-        if (g1 !== g2) return;
-        const leftId = posX[m.person1_id] < posX[m.person2_id] ? m.person1_id : m.person2_id;
-        const rightId = leftId === m.person1_id ? m.person2_id : m.person1_id;
-        const x1 = posX[leftId] + offsetX + NODE_W;
-        const x2 = posX[rightId] + offsetX;
-        const y = g1 * V_GAP + NODE_TOP + NODE_H / 2;
-        if (x2 > x1) {
-            svg += `<line class="marriage-line" x1="${x1}" y1="${y}" x2="${x2}" y2="${y}" />`;
-            svg += `<circle class="marriage-dot" cx="${(x1 + x2) / 2}" cy="${y}" r="6" />`;
-        }
-    });
+    svg += treeDrawConnectors(familyGroups, generation, posX, offsetX, visibleIds, marriages);
 
     persons.filter(p => visibleIds.has(p.id)).forEach(p => {
         const x = posX[p.id] + offsetX;
