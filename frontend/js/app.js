@@ -874,14 +874,13 @@ function setTreeScale(nextScale) {
    }
    
    function formatTreeYears(p) {
-       const end = p.is_alive ? "nay" : formatYear(p.death_date);
-       return `${formatYear(p.birth_date)} — ${end}`;
+       return formatYear(p.birth_date);
    }
    
    function treeComputeGenerations(persons, parent_child, marriages, visibleIds, parentsOf) {
        const generation = {};
        persons
-           .filter((p) => visibleIds.has(p.id) && (!parentsOf[p.id] || parentsOf[p.id].length === 0))
+           .filter((p) => visibleIds.has(p.id) && !(parentsOf[p.id] || []).some((pid) => visibleIds.has(pid)))
            .forEach((p) => (generation[p.id] = p.generation ?? 0));
    
        let changed = true;
