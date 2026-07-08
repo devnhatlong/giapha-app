@@ -55,6 +55,23 @@
        if (!dateStr) return "?";
        return dateStr.split("-")[0];
    }
+
+   // Hiển thị ngày theo kiểu Việt Nam (ngày/tháng/năm) thay vì YYYY-MM-DD.
+   // Chấp nhận "YYYY-MM-DD" (đủ ngày/tháng/năm) hoặc "MM-DD" (sự kiện lặp lại
+   // hàng năm, không có năm) — chuỗi không đúng định dạng thì giữ nguyên.
+   function formatDateVN(dateStr) {
+       if (!dateStr) return "";
+       const parts = dateStr.split("-");
+       if (parts.length === 3 && parts.every((v) => /^\d+$/.test(v))) {
+           const [y, m, d] = parts;
+           return `${d}/${m}/${y}`;
+       }
+       if (parts.length === 2 && parts.every((v) => /^\d+$/.test(v))) {
+           const [m, d] = parts;
+           return `${d}/${m}`;
+       }
+       return dateStr;
+   }
    
    function genderLabel(g) {
        return g === "male" ? "Nam" : g === "female" ? "Nữ" : "Khác";
@@ -204,13 +221,13 @@
    // TAB: TỔNG QUAN (DASHBOARD)
    // ============================================================
    async function loadDashboard() {
-       const stats = await apiGet("/stats");
+       const [stats, treeData] = await Promise.all([apiGet("/stats"), apiGet("/tree")]);
        const grid = document.getElementById("stats-grid");
        grid.innerHTML = `
            <div class="stat-card"><div class="stat-number">${stats.total_members}</div><div class="stat-label">Tổng thành viên</div></div>
            <div class="stat-card"><div class="stat-number">${stats.alive}</div><div class="stat-label">Còn sống</div></div>
            <div class="stat-card"><div class="stat-number">${stats.deceased}</div><div class="stat-label">Đã mất</div></div>
-           <div class="stat-card"><div class="stat-number">${stats.generations}</div><div class="stat-label">Số đời đã ghi nhận</div></div>
+           <div class="stat-card"><div class="stat-number">${countRecordedGenerations(treeData)}</div><div class="stat-label">Số đời đã ghi nhận</div></div>
        `;
    
        const events = await apiGet("/events");
@@ -218,14 +235,29 @@
        if (events.length === 0) {
            wrap.innerHTML = `<div class="empty-state"><div class="empty-icon">✦</div>Chưa có sự kiện nào được ghi nhận.</div>`;
        } else {
-           wrap.innerHTML = `<ul class="relation-list">` + events.map(e => `
+           // Backend đã sắp theo ngày sắp tới gần nhất -> chỉ hiện vài sự kiện gần nhất
+           wrap.innerHTML = `<ul class="relation-list">` + events.slice(0, 6).map(e => `
                <li>
-                   <span><strong>${e.full_name}</strong> — ${eventTypeLabel(e.event_type)} (${e.event_date || "chưa rõ ngày"}, ${e.calendar_type === "lunar" ? "âm lịch" : "dương lịch"})</span>
+                   <span><strong>${e.full_name}</strong> — ${eventTypeLabel(e.event_type)} (${formatDateVN(e.event_date) || "chưa rõ ngày"}, ${e.calendar_type === "lunar" ? "âm lịch" : "dương lịch"})</span>
                </li>
            `).join("") + `</ul>`;
        }
    }
    
+   // Đếm số đời dựa trên quan hệ cha/mẹ (giống thuật toán vẽ cây), vì cột
+   // generation trong DB chỉ có giá trị khi người dùng nhập tay, còn cây gia
+   // phả luôn tự tính đời — dùng chung 1 nguồn tính để 2 nơi khớp nhau.
+   function countRecordedGenerations(data) {
+       if (!data.persons.length) return 0;
+       const parentsOf = {};
+       data.parent_child.forEach((link) => {
+           (parentsOf[link.child_id] ??= []).push(link.parent_id);
+       });
+       const visibleIds = new Set(data.persons.map((p) => p.id));
+       const generation = treeComputeGenerations(data.persons, data.parent_child, data.marriages, visibleIds, parentsOf);
+       return new Set(Object.values(generation)).size;
+   }
+
    function eventTypeLabel(t) {
        if (t === "death_anniversary") return "Ngày giỗ";
        if (t === "birthday") return "Sinh nhật";
@@ -481,10 +513,10 @@
            <div class="detail-grid">
                <div class="card">
                    <h3 class="card-title">Thông tin cá nhân</h3>
-                   <p><strong>Ngày sinh:</strong> ${person.birth_date || "chưa rõ"} ${person.birth_date_note ? `(${escapeHtml(person.birth_date_note)})` : ""}</p>
+                   <p><strong>Ngày sinh:</strong> ${formatDateVN(person.birth_date) || "chưa rõ"} ${person.birth_date_note ? `(${escapeHtml(person.birth_date_note)})` : ""}</p>
                    <p><strong>Nơi sinh:</strong> ${escapeHtml(person.birth_place) || "—"}</p>
                    <p><strong>Nghề nghiệp:</strong> ${escapeHtml(person.occupation) || "—"}</p>
-                   ${!person.is_alive ? `<p><strong>Ngày mất:</strong> ${person.death_date || "chưa rõ"} ${person.death_date_note ? `(${escapeHtml(person.death_date_note)})` : ""}</p>` : ""}
+                   ${!person.is_alive ? `<p><strong>Ngày mất:</strong> ${formatDateVN(person.death_date) || "chưa rõ"} ${person.death_date_note ? `(${escapeHtml(person.death_date_note)})` : ""}</p>` : ""}
                    <p><strong>Tiểu sử:</strong><br>${escapeHtml(person.biography) || "—"}</p>
                </div>
                <div class="card">
@@ -670,11 +702,25 @@
    // ============================================================
    // TAB: SỰ KIỆN
    // ============================================================
+   let lastEventsData = [];
+   let eventsFilter = "all";
+
    async function loadEvents() {
-       const events = await apiGet("/events");
+       lastEventsData = await apiGet("/events");
+       renderEventsList();
+   }
+
+   function renderEventsList() {
        const list = document.getElementById("events-list");
+       const events = eventsFilter === "all"
+           ? lastEventsData
+           : lastEventsData.filter((e) => e.event_type === eventsFilter);
+
        if (events.length === 0) {
-           list.innerHTML = `<div class="empty-state"><div class="empty-icon">✦</div>Chưa có sự kiện nào.</div>`;
+           const msg = lastEventsData.length === 0
+               ? "Chưa có sự kiện nào."
+               : "Không có sự kiện nào thuộc loại này.";
+           list.innerHTML = `<div class="empty-state"><div class="empty-icon">✦</div>${msg}</div>`;
            return;
        }
        list.innerHTML = `
@@ -684,17 +730,25 @@
                    ${events.map(e => `
                        <tr>
                            <td>${e.full_name}</td>
-                           <td>${eventTypeLabel(e.event_type)}</td>
-                           <td>${e.event_date || "—"}</td>
+                           <td>${eventTypeLabel(e.event_type)}${e.auto ? ` <span class="event-auto-badge" title="Tự động lấy từ ngày sinh/ngày mất trong hồ sơ">Tự động</span>` : ""}</td>
+                           <td>${formatDateVN(e.event_date) || "—"}</td>
                            <td>${e.calendar_type === "lunar" ? "Âm lịch" : "Dương lịch"}</td>
                            <td>${e.description || "—"}</td>
-                           <td><button class="btn-secondary btn" onclick="deleteEvent(${e.id})">Xóa</button></td>
+                           <td>${e.auto ? "" : `<button class="btn-secondary btn" onclick="deleteEvent(${e.id})">Xóa</button>`}</td>
                        </tr>
                    `).join("")}
                </tbody>
            </table>
        `;
    }
+
+   document.querySelectorAll(".event-filter-btn").forEach((btn) => {
+       btn.addEventListener("click", () => {
+           eventsFilter = btn.dataset.filter;
+           document.querySelectorAll(".event-filter-btn").forEach((b) => b.classList.toggle("active", b === btn));
+           renderEventsList();
+       });
+   });
    
    async function deleteEvent(id) {
        const ok = await showConfirm({
@@ -766,6 +820,38 @@
    let treeDisplayMode = "separate";
    let lastTreeData = null;
    let lastTreeRootId = null;
+let treeScale = 1;
+const TREE_SCALE_MIN = 0.2;
+const TREE_SCALE_MAX = 3;
+const TREE_SCALE_STEP = 0.1;
+let lastTreeExport = null; // { svg, canvasWidth, canvasHeight } - dùng để xuất PNG/JPG/PDF
+
+// CSS dùng màu chữ trực tiếp (không dùng var(--...)) vì khi xuất ảnh/PDF,
+// SVG được tách ra khỏi trang (blob/print riêng) nên không truy cập được biến CSS của :root.
+const TREE_SVG_STYLE = `
+.tree-node-card.deceased { opacity: 0.72; }
+.tree-node-card rect.card-bg { fill: #FBF5E7; stroke: #B8935A; stroke-width: 1.2; }
+.tree-node-card text.node-name { font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; font-size: 13.5px; font-weight: 600; fill: #2B2118; }
+.tree-node-card text.node-years { font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; font-size: 11.5px; fill: #6B5D48; }
+.tree-node-card text.node-avatar-letter { font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; font-weight: 600; fill: #FBF5E7; text-anchor: middle; dominant-baseline: central; }
+.tree-node-card text.gen-label { font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; font-size: 9.5px; font-weight: 600; fill: #8B2635; text-anchor: middle; }
+.edge-line { stroke: #B8935A; stroke-width: 1.6; fill: none; }
+.marriage-line { stroke: #8B2635; stroke-width: 2; fill: none; }
+.marriage-dot { fill: #8B2635; }
+`;
+
+function updateTreeZoomLabel() {
+    const label = document.getElementById("tree-zoom-label");
+    if (label) label.textContent = `${Math.round(treeScale * 100)}%`;
+}
+
+function setTreeScale(nextScale) {
+    const clamped = Math.max(TREE_SCALE_MIN, Math.min(TREE_SCALE_MAX, nextScale));
+    if (Math.abs(clamped - treeScale) < 0.001) return;
+    treeScale = clamped;
+    updateTreeZoomLabel();
+    if (lastTreeData) drawTree(lastTreeData, lastTreeRootId);
+}
    
    function setTreeDisplayMode(mode) {
        if (treeDisplayMode === mode) return;
@@ -862,7 +948,177 @@
        SearchSelect.refresh(sel);
        loadTree();
    });
-   
+
+document.getElementById("btn-tree-zoom-in").addEventListener("click", () => {
+    setTreeScale(treeScale + TREE_SCALE_STEP);
+});
+document.getElementById("btn-tree-zoom-out").addEventListener("click", () => {
+    setTreeScale(treeScale - TREE_SCALE_STEP);
+});
+document.getElementById("btn-tree-zoom-reset").addEventListener("click", () => {
+    setTreeScale(1);
+});
+
+// ============================================================
+// PAN (kéo chuột để di chuyển) + ZOOM BẰNG CTRL + LĂN CHUỘT
+// ============================================================
+const treeWrapEl = document.getElementById("tree-canvas-wrap");
+let treePanState = null;
+let treeSuppressNextClick = false;
+
+treeWrapEl.addEventListener("mousedown", (e) => {
+    if (e.button !== 0) return;
+    treePanState = {
+        startX: e.clientX,
+        startY: e.clientY,
+        startScrollLeft: treeWrapEl.scrollLeft,
+        startScrollTop: treeWrapEl.scrollTop,
+        moved: false,
+    };
+});
+
+window.addEventListener("mousemove", (e) => {
+    if (!treePanState) return;
+    const dx = e.clientX - treePanState.startX;
+    const dy = e.clientY - treePanState.startY;
+    if (!treePanState.moved && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) {
+        treePanState.moved = true;
+        treeWrapEl.classList.add("panning");
+    }
+    if (treePanState.moved) {
+        treeWrapEl.scrollLeft = treePanState.startScrollLeft - dx;
+        treeWrapEl.scrollTop = treePanState.startScrollTop - dy;
+    }
+});
+
+window.addEventListener("mouseup", () => {
+    if (treePanState && treePanState.moved) {
+        treeWrapEl.classList.remove("panning");
+        treeSuppressNextClick = true;
+    }
+    treePanState = null;
+});
+
+treeWrapEl.addEventListener("dragstart", (e) => e.preventDefault());
+
+// Chặn sự kiện click "ảo" phát sinh ngay sau khi vừa kéo (pan) xong,
+// tránh vô tình mở chi tiết thành viên nằm dưới điểm thả chuột.
+treeWrapEl.addEventListener("click", (e) => {
+    if (treeSuppressNextClick) {
+        treeSuppressNextClick = false;
+        e.stopPropagation();
+        e.preventDefault();
+    }
+}, true);
+
+treeWrapEl.addEventListener("wheel", (e) => {
+    if (!e.ctrlKey) return;
+    e.preventDefault();
+    const rect = treeWrapEl.getBoundingClientRect();
+    const cursorX = e.clientX - rect.left;
+    const cursorY = e.clientY - rect.top;
+    const ratioX = (treeWrapEl.scrollLeft + cursorX) / treeWrapEl.scrollWidth;
+    const ratioY = (treeWrapEl.scrollTop + cursorY) / treeWrapEl.scrollHeight;
+    const delta = e.deltaY > 0 ? -TREE_SCALE_STEP : TREE_SCALE_STEP;
+    setTreeScale(treeScale + delta);
+    requestAnimationFrame(() => {
+        treeWrapEl.scrollLeft = ratioX * treeWrapEl.scrollWidth - cursorX;
+        treeWrapEl.scrollTop = ratioY * treeWrapEl.scrollHeight - cursorY;
+    });
+}, { passive: false });
+
+// ============================================================
+// XUẤT CÂY GIA PHẢ: PNG / JPG / PDF
+// ============================================================
+function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function treeExportFilename(ext) {
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    const stamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}`;
+    return `cay-gia-pha_${stamp}.${ext}`;
+}
+
+async function renderTreeToCanvas(scaleFactor) {
+    const { svg, canvasWidth, canvasHeight } = lastTreeExport;
+    const svgBlob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
+    const url = URL.createObjectURL(svgBlob);
+    try {
+        const img = await new Promise((resolve, reject) => {
+            const image = new Image();
+            image.onload = () => resolve(image);
+            image.onerror = () => reject(new Error("Không thể dựng ảnh từ SVG"));
+            image.src = url;
+        });
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.ceil(canvasWidth * scaleFactor);
+        canvas.height = Math.ceil(canvasHeight * scaleFactor);
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#FBF5E7";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        return canvas;
+    } finally {
+        URL.revokeObjectURL(url);
+    }
+}
+
+async function exportTreeRaster(format) {
+    if (!lastTreeExport) { showToast("Chưa có cây để xuất.", "info"); return; }
+    try {
+        const canvas = await renderTreeToCanvas(2);
+        const mime = format === "jpg" ? "image/jpeg" : "image/png";
+        const filename = treeExportFilename(format);
+
+        // Chạy trong cửa sổ desktop (pywebview): mở hộp thoại "Lưu file" thật của
+        // hệ điều hành để người dùng tự chọn nơi lưu, thay vì tải thẳng vào Downloads.
+        if (window.pywebview?.api?.save_file) {
+            const base64 = canvas.toDataURL(mime, 0.95).split(",")[1];
+            const fileTypes = format === "jpg" ? ["Ảnh JPG (*.jpg)"] : ["Ảnh PNG (*.png)"];
+            const result = await window.pywebview.api.save_file(filename, base64, fileTypes);
+            if (result?.ok) {
+                showToast(`Đã lưu: ${result.path}`, "success");
+            } else if (!result?.canceled) {
+                showToast(result?.error || "Không thể lưu file.", "error");
+            }
+            return;
+        }
+
+        canvas.toBlob((blob) => {
+            if (!blob) { showToast("Không thể xuất ảnh.", "error"); return; }
+            downloadBlob(blob, filename);
+            showToast("Đã xuất ảnh cây gia phả", "success");
+        }, mime, 0.95);
+    } catch (err) {
+        showToast(err.message, "error");
+    }
+}
+
+function exportTreePdfViaPrint() {
+    if (!lastTreeExport) { showToast("Chưa có cây để xuất.", "info"); return; }
+    const printArea = document.getElementById("tree-print-area");
+    printArea.innerHTML = lastTreeExport.svg;
+    const cleanup = () => {
+        printArea.innerHTML = "";
+        window.removeEventListener("afterprint", cleanup);
+    };
+    window.addEventListener("afterprint", cleanup);
+    window.print();
+}
+
+document.getElementById("btn-tree-export-png").addEventListener("click", () => exportTreeRaster("png"));
+document.getElementById("btn-tree-export-jpg").addEventListener("click", () => exportTreeRaster("jpg"));
+document.getElementById("btn-tree-export-pdf").addEventListener("click", () => exportTreePdfViaPrint());
+
    document.querySelectorAll(".tree-mode-btn").forEach((btn) => {
        btn.addEventListener("click", () => setTreeDisplayMode(btn.dataset.mode));
    });
@@ -1018,6 +1274,8 @@
    
        const maxGen = persons.filter((p) => visibleIds.has(p.id)).reduce((m, p) => Math.max(m, generation[p.id]), 0);
        const canvasHeight = (maxGen + 1) * V_GAP + NODE_H_MERGED + 40;
+    const scaledWidth = Math.ceil(canvasWidth * treeScale);
+    const scaledHeight = Math.ceil(canvasHeight * treeScale);
    
        // ============================================================
        // BƯỚC 4: VẼ SVG (đường nối trước, thẻ người sau)
@@ -1034,7 +1292,7 @@
            svgDefs += `<clipPath id="clip-${p.id}"><circle cx="0" cy="0" r="${NODE_AVATAR_R}" /></clipPath>`;
        });
        svgDefs += "</defs>";
-       const svgParts = [`<svg width="${canvasWidth}" height="${canvasHeight}" xmlns="http://www.w3.org/2000/svg">${svgDefs}`];
+       const svgParts = [`<svg width="${canvasWidth}" height="${canvasHeight}" xmlns="http://www.w3.org/2000/svg">${svgDefs}<style>${TREE_SVG_STYLE}</style>`];
    
        function drawConnectors(node) {
            if (node.unit.type === "couple" && treeDisplayMode === "separate") {
@@ -1079,7 +1337,7 @@
            }
            return `
                <circle cx="${cx}" cy="${cy}" r="${r}" fill="${genderColor}" />
-               <text class="node-avatar-letter" x="${cx}" y="${cy}" dy="0.35em" text-anchor="middle" font-size="${Math.round(r * 0.75)}">${escapeHtml(treeAvatarInitial(p.full_name))}</text>`;
+               <text class="node-avatar-letter" x="${cx}" y="${cy}" text-anchor="middle" font-size="${Math.round(r * 0.75)}">${escapeHtml(treeAvatarInitial(p.full_name))}</text>`;
        }
    
        function drawNode(node) {
@@ -1129,12 +1387,20 @@
    
        svgParts.push("</svg>");
        const svg = svgParts.join("");
-   
+       lastTreeExport = { svg, canvasWidth, canvasHeight };
+
        const wrap = document.getElementById("tree-canvas-wrap");
+    updateTreeZoomLabel();
        if (persons.filter((p) => visibleIds.has(p.id)).length === 0) {
            wrap.innerHTML = `<div class="empty-state"><div class="empty-icon">⌂</div>Chưa có dữ liệu để vẽ cây gia phả. Hãy thêm thành viên và thiết lập quan hệ trước.</div>`;
        } else {
-           wrap.innerHTML = `<div class="tree-svg-center" style="min-width:${canvasWidth}px">${svg}</div>`;
+        wrap.innerHTML = `
+            <div class="tree-scale-box" style="width:${scaledWidth}px;height:${scaledHeight}px">
+                <div class="tree-svg-center" style="width:${canvasWidth}px;transform:scale(${treeScale})">
+                    ${svg}
+                </div>
+            </div>
+        `;
        }
    }
    

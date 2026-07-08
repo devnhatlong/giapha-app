@@ -8,6 +8,8 @@ FastAPI giúp ta định nghĩa các "đường dẫn" (endpoint), ví dụ:
 Giao diện (frontend) sẽ gọi tới các đường dẫn này để lấy/gửi dữ liệu.
 """
 
+from datetime import date
+
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -395,16 +397,86 @@ def remove_marriage(marriage_id: int):
 # API: SỰ KIỆN (ngày giỗ, sự kiện quan trọng)
 # ============================================================
 
+def _parse_month_day(date_str):
+    """Lấy (tháng, ngày) từ chuỗi 'YYYY-MM-DD' hoặc 'MM-DD'."""
+    if not date_str:
+        return None
+    parts = date_str.split("-")
+    try:
+        if len(parts) == 3:
+            return int(parts[1]), int(parts[2])
+        if len(parts) == 2:
+            return int(parts[0]), int(parts[1])
+    except ValueError:
+        return None
+    return None
+
+
+def _next_occurrence(month, day, today):
+    """Ngày lặp lại hàng năm gần nhất kể từ hôm nay (nếu đã qua trong năm nay -> tính sang năm sau)."""
+    def safe_date(year, month, day):
+        try:
+            return date(year, month, day)
+        except ValueError:
+            return date(year, month, 28)  # VD: 29/2 vào năm không nhuận
+
+    occ = safe_date(today.year, month, day)
+    if occ < today:
+        occ = safe_date(today.year + 1, month, day)
+    return occ
+
+
+def _event_sort_key(event, today):
+    md = _parse_month_day(event["event_date"])
+    if md:
+        return (0, _next_occurrence(md[0], md[1], today).isoformat())
+    return (1, event["event_date"] or "")
+
+
 @app.get("/api/events")
 def list_events():
+    """
+    Trả về sự kiện thủ công (bảng events) GỘP với sự kiện tự sinh từ hồ sơ
+    thành viên: sinh nhật (người còn sống) và ngày giỗ (người đã mất), lấy
+    thẳng từ birth_date/death_date - người dùng không cần nhập lại lần nữa.
+    Nếu đã có sự kiện thủ công cùng loại cho 1 người thì bỏ qua bản tự sinh
+    tương ứng (ưu tiên dữ liệu người dùng tự khai, ví dụ ngày âm lịch).
+    """
     conn = database.get_connection()
     try:
-        rows = conn.execute("""
+        manual_rows = conn.execute("""
             SELECT e.*, p.full_name FROM events e
             JOIN persons p ON p.id = e.person_id
-            ORDER BY e.event_date
         """).fetchall()
-        return [dict(r) for r in rows]
+        manual_events = [dict(r) for r in manual_rows]
+        for e in manual_events:
+            e["auto"] = False
+        manual_keys = {(e["person_id"], e["event_type"]) for e in manual_events}
+
+        persons = conn.execute(
+            "SELECT id, full_name, birth_date, death_date, is_alive FROM persons"
+        ).fetchall()
+        auto_events = []
+        for p in persons:
+            if p["is_alive"] and p["birth_date"] and (p["id"], "birthday") not in manual_keys:
+                auto_events.append({
+                    "id": None, "person_id": p["id"], "full_name": p["full_name"],
+                    "event_type": "birthday", "event_date": p["birth_date"],
+                    "calendar_type": "solar", "description": None, "recurring": 1,
+                    "auto": True,
+                })
+            if not p["is_alive"] and p["death_date"] and (p["id"], "death_anniversary") not in manual_keys:
+                auto_events.append({
+                    "id": None, "person_id": p["id"], "full_name": p["full_name"],
+                    "event_type": "death_anniversary", "event_date": p["death_date"],
+                    "calendar_type": "solar", "description": None, "recurring": 1,
+                    "auto": True,
+                })
+
+        today = date.today()
+        all_events = manual_events + auto_events
+        all_events.sort(key=lambda e: _event_sort_key(e, today))
+        return all_events
     finally:
         conn.close()
 

@@ -95,13 +95,24 @@
             <div class="page-header">
                 <div>
                     <h1 class="page-title">Sơ đồ cây gia phả</h1>
-                    <div class="page-subtitle">Kéo để xem, nhấp vào 1 người để xem chi tiết</div>
+                    <div class="page-subtitle">Kéo để xem, giữ Ctrl + lăn chuột để phóng to/thu nhỏ, nhấp vào 1 người để xem chi tiết</div>
                 </div>
             </div>
             <div class="tree-toolbar">
                 <label style="font-size:13px;color:var(--color-ink-soft)">Xem từ gốc:</label>
                 <select id="tree-root-select" class="search-input search-select"></select>
                 <button class="btn-secondary btn" id="btn-tree-reset">Xem toàn bộ dòng họ</button>
+                <div class="tree-zoom-controls">
+                    <button type="button" class="btn-secondary btn" id="btn-tree-zoom-out">-</button>
+                    <span id="tree-zoom-label">100%</span>
+                    <button type="button" class="btn-secondary btn" id="btn-tree-zoom-in">+</button>
+                    <button type="button" class="btn-secondary btn" id="btn-tree-zoom-reset">Reset</button>
+                </div>
+                <div class="tree-export-controls">
+                    <button type="button" class="btn-secondary btn" id="btn-tree-export-png">Xuất PNG</button>
+                    <button type="button" class="btn-secondary btn" id="btn-tree-export-jpg">Xuất JPG</button>
+                    <button type="button" class="btn-secondary btn" id="btn-tree-export-pdf">Xuất PDF</button>
+                </div>
             </div>
             <div class="tree-canvas-wrap" id="tree-canvas-wrap"></div>
             <div class="tree-legend">
@@ -119,6 +130,12 @@
                     <div class="page-subtitle">Theo dõi ngày giỗ, ngày kỵ và các sự kiện quan trọng</div>
                 </div>
                 <button class="btn" id="btn-add-event">+ Thêm sự kiện</button>
+            </div>
+            <div class="event-filter-tabs">
+                <button type="button" class="event-filter-btn active" data-filter="all">Tất cả</button>
+                <button type="button" class="event-filter-btn" data-filter="birthday">Sinh nhật</button>
+                <button type="button" class="event-filter-btn" data-filter="death_anniversary">Ngày giỗ</button>
+                <button type="button" class="event-filter-btn" data-filter="custom">Khác</button>
             </div>
             <div id="events-list"></div>
         </section>
@@ -305,6 +322,7 @@
     </div>
 </div>
 <div class="toast-container" id="toast-container" aria-live="polite"></div>
+<div id="tree-print-area"></div>
 
 <script src="js/ui.js"></script>
 <script src="js/search-select.js"></script>

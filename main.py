@@ -18,6 +18,7 @@ Cách hoạt động:
    Khi người dùng đóng cửa sổ -> toàn bộ chương trình tự tắt.
 """
 
+import base64
 import threading
 import time
 import os
@@ -89,6 +90,32 @@ def run_server():
     uvicorn.run(app, host=HOST, port=PORT, log_level="warning")
 
 
+class JSBridge:
+    """
+    Cầu nối JS -> Python, gọi từ frontend qua window.pywebview.api.
+    Dùng để mở hộp thoại "Lưu file" thật của hệ điều hành (thay vì trình duyệt
+    tự tải xuống thư mục Downloads mặc định), ví dụ khi xuất ảnh cây gia phả.
+    """
+
+    def save_file(self, filename, data_b64, file_types=None):
+        window = webview.windows[0]
+        types = tuple(file_types) if file_types else ()
+        result = window.create_file_dialog(
+            webview.SAVE_DIALOG,
+            save_filename=filename,
+            file_types=types,
+        )
+        if not result:
+            return {"ok": False, "canceled": True}
+        path = result[0] if isinstance(result, (list, tuple)) else result
+        try:
+            with open(path, "wb") as f:
+                f.write(base64.b64decode(data_b64))
+            return {"ok": True, "path": path}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+
 def main():
     # Bước 1: chuẩn bị database
     database.init_db()
@@ -113,6 +140,7 @@ def main():
         width=1280,
         height=800,
         min_size=(1000, 700),
+        js_api=JSBridge(),
     )
     app_icon = resolve_app_icon()
     enable_windows_app_icon(app_icon)

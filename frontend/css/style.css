@@ -292,6 +292,43 @@ table.data-table {
 .data-table tr:last-child td { border-bottom: none; }
 .data-table tr:hover { background: rgba(139, 38, 53, 0.04); cursor: pointer; }
 
+.event-auto-badge {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 8px;
+    border-radius: 8px;
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--color-ink-soft);
+    background: rgba(139, 38, 53, 0.08);
+}
+
+.event-filter-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+}
+
+.event-filter-btn {
+    padding: 7px 16px;
+    border-radius: 20px;
+    border: 1px solid var(--color-border);
+    background: var(--color-card);
+    color: var(--color-ink-soft);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.event-filter-btn:hover { border-color: var(--color-gold); }
+
+.event-filter-btn.active {
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+    color: #FBF5E7;
+}
+
 .pagination {
     display: flex;
     align-items: center;
@@ -598,7 +635,28 @@ table.data-table {
     display: flex;
     gap: 12px;
     align-items: center;
+    flex-wrap: wrap;
     margin-bottom: 16px;
+}
+
+.tree-zoom-controls {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+}
+
+#tree-zoom-label {
+    min-width: 52px;
+    text-align: center;
+    font-size: 13px;
+    color: var(--color-ink-soft);
+}
+
+.tree-export-controls {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
 }
 
 .tree-canvas-wrap {
@@ -609,12 +667,23 @@ table.data-table {
     box-shadow: var(--shadow-card);
     height: calc(100vh - 230px);
     padding: 20px 0;
+    cursor: grab;
+}
+
+.tree-canvas-wrap.panning {
+    cursor: grabbing;
+    user-select: none;
 }
 
 .tree-svg-center {
     display: flex;
     justify-content: center;
     margin: 0 auto;
+}
+
+.tree-scale-box {
+    margin: 0 auto;
+    transform-origin: top left;
 }
 
 .tree-node-card { cursor: pointer; }
@@ -642,7 +711,6 @@ table.data-table {
 
 .tree-node-card text.node-avatar-letter {
     font-family: var(--font-body);
-    font-size: 15px;
     font-weight: 600;
     fill: #FBF5E7;
     text-anchor: middle;
@@ -685,6 +753,20 @@ table.data-table {
 .tree-legend-dot.male { background: var(--color-male); }
 .tree-legend-dot.female { background: var(--color-female); }
 .tree-legend-dot.deceased { background: var(--color-ink-soft); }
+
+/* Vùng ẩn chỉ dùng khi xuất PDF (In > Lưu dưới dạng PDF) */
+#tree-print-area {
+    display: none;
+    background: #fff;
+}
+
+@media print {
+    .app-shell, .toast-container, .modal-overlay, .confirm-overlay { display: none !important; }
+    #tree-print-area {
+        display: block;
+    }
+    @page { size: landscape; margin: 10mm; }
+}
 
 /* ============================================================
    AVATAR
