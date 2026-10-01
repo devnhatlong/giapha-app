@@ -100,8 +100,29 @@
        return parts[0][0].toUpperCase();
    }
    
-   function renderAvatarHtml(name, avatarPath, sizeClass) {
-       const cls = sizeClass ? `avatar ${sizeClass}` : "avatar";
+   // Icon SVG lấy từ bộ <symbol> nhúng trong index.html
+   function icon(name) {
+       return `<svg class="icon"><use href="#i-${name}" /></svg>`;
+   }
+
+   function genderPill(g) {
+       const cls = g === "male" ? "pill-male" : g === "female" ? "pill-female" : "";
+       return `<span class="pill ${cls}">${genderLabel(g)}</span>`;
+   }
+
+   function statusPill(isAlive) {
+       return isAlive
+           ? `<span class="pill pill-alive"><span class="status-dot"></span>Còn sống</span>`
+           : `<span class="pill pill-deceased"><span class="status-dot"></span>Đã mất</span>`;
+   }
+
+   function emptyStateHtml(iconName, message) {
+       return `<div class="empty-state"><div class="empty-icon">${icon(iconName)}</div>${message}</div>`;
+   }
+
+   function renderAvatarHtml(name, avatarPath, sizeClass, gender) {
+       let cls = sizeClass ? `avatar ${sizeClass}` : "avatar";
+       if (gender === "male" || gender === "female") cls += ` avatar-${gender}`;
        if (avatarPath) {
            return `<div class="${cls}"><img src="${avatarUrl(avatarPath)}" alt="${escapeHtml(name)}" /></div>`;
        }
@@ -223,25 +244,53 @@
    async function loadDashboard() {
        const [stats, treeData] = await Promise.all([apiGet("/stats"), apiGet("/tree")]);
        const grid = document.getElementById("stats-grid");
-       grid.innerHTML = `
-           <div class="stat-card"><div class="stat-number">${stats.total_members}</div><div class="stat-label">Tổng thành viên</div></div>
-           <div class="stat-card"><div class="stat-number">${stats.alive}</div><div class="stat-label">Còn sống</div></div>
-           <div class="stat-card"><div class="stat-number">${stats.deceased}</div><div class="stat-label">Đã mất</div></div>
-           <div class="stat-card"><div class="stat-number">${countRecordedGenerations(treeData)}</div><div class="stat-label">Số đời đã ghi nhận</div></div>
-       `;
-   
+       const statCard = (cls, iconName, value, label) => `
+           <div class="stat-card ${cls}">
+               <div class="stat-icon">${icon(iconName)}</div>
+               <div><div class="stat-number">${value}</div><div class="stat-label">${label}</div></div>
+           </div>`;
+       grid.innerHTML =
+           statCard("stat-total", "users", stats.total_members, "Tổng thành viên") +
+           statCard("stat-alive", "alive", stats.alive, "Còn sống") +
+           statCard("stat-deceased", "flame", stats.deceased, "Đã mất") +
+           statCard("stat-generations", "layers", countRecordedGenerations(treeData), "Số đời đã ghi nhận");
+
        const events = await apiGet("/events");
        const wrap = document.getElementById("upcoming-events");
        if (events.length === 0) {
-           wrap.innerHTML = `<div class="empty-state"><div class="empty-icon">✦</div>Chưa có sự kiện nào được ghi nhận.</div>`;
+           wrap.innerHTML = emptyStateHtml("calendar", "Chưa có sự kiện nào được ghi nhận.");
        } else {
            // Backend đã sắp theo ngày sắp tới gần nhất -> chỉ hiện vài sự kiện gần nhất
-           wrap.innerHTML = `<ul class="relation-list">` + events.slice(0, 6).map(e => `
-               <li>
-                   <span><strong>${e.full_name}</strong> — ${eventTypeLabel(e.event_type)} (${formatDateVN(e.event_date) || "chưa rõ ngày"}, ${e.calendar_type === "lunar" ? "âm lịch" : "dương lịch"})</span>
+           wrap.innerHTML = `<ul class="event-list">` + events.slice(0, 6).map(e => `
+               <li class="event-item">
+                   ${renderDateBadge(e.event_date)}
+                   <div class="event-body">
+                       <div class="event-name">${escapeHtml(e.full_name)}</div>
+                       <div class="event-meta">
+                           ${eventTypePill(e.event_type)}
+                           <span>${formatDateVN(e.event_date) || "chưa rõ ngày"} · ${e.calendar_type === "lunar" ? "âm lịch" : "dương lịch"}</span>
+                       </div>
+                   </div>
                </li>
            `).join("") + `</ul>`;
        }
+   }
+
+   // Ô lịch nhỏ (tháng ở trên, ngày ở dưới) cho ngày dạng "MM-DD" hoặc "YYYY-MM-DD"
+   function renderDateBadge(dateStr) {
+       const parts = (dateStr || "").split("-");
+       const valid = parts.length >= 2 && parts.every((v) => /^\d+$/.test(v));
+       if (!valid) {
+           return `<div class="date-badge unknown"><div class="date-badge-month">—</div><div class="date-badge-day">?</div></div>`;
+       }
+       const [m, d] = parts.slice(-2);
+       return `<div class="date-badge" title="${formatDateVN(dateStr)}"><div class="date-badge-month">Th ${parseInt(m)}</div><div class="date-badge-day">${d}</div></div>`;
+   }
+
+   function eventTypePill(t) {
+       const iconName = t === "death_anniversary" ? "flame" : t === "birthday" ? "cake" : "star";
+       const cls = t === "death_anniversary" || t === "birthday" ? t : "custom";
+       return `<span class="pill pill-${cls}">${icon(iconName)}${eventTypeLabel(t)}</span>`;
    }
    
    // Đếm số đời dựa trên quan hệ cha/mẹ (giống thuật toán vẽ cây), vì cột
@@ -287,9 +336,9 @@
            <div class="pagination">
                <span class="pagination-info">Hiển thị ${start}–${end} / ${total} thành viên</span>
                <div class="pagination-controls">
-                   <button type="button" class="pagination-btn" ${membersPage <= 1 ? "disabled" : ""} onclick="goToMembersPage(${membersPage - 1})">← Trước</button>
+                   <button type="button" class="pagination-btn" ${membersPage <= 1 ? "disabled" : ""} onclick="goToMembersPage(${membersPage - 1})">${icon("chevron-left")} Trước</button>
                    <span class="pagination-pages">Trang ${membersPage} / ${totalPages}</span>
-                   <button type="button" class="pagination-btn" ${membersPage >= totalPages ? "disabled" : ""} onclick="goToMembersPage(${membersPage + 1})">Sau →</button>
+                   <button type="button" class="pagination-btn" ${membersPage >= totalPages ? "disabled" : ""} onclick="goToMembersPage(${membersPage + 1})">Sau ${icon("chevron-right")}</button>
                </div>
            </div>
        `;
@@ -298,7 +347,10 @@
    function renderMembersTable() {
        const wrap = document.getElementById("members-table-wrap");
        if (allPersons.length === 0) {
-           wrap.innerHTML = `<div class="empty-state"><div class="empty-icon">☰</div>Chưa có thành viên nào. Nhấn "Thêm thành viên" để bắt đầu.</div>`;
+           const msg = document.getElementById("search-input").value.trim()
+               ? "Không tìm thấy thành viên phù hợp."
+               : "Chưa có thành viên nào. Nhấn \"Thêm thành viên\" để bắt đầu.";
+           wrap.innerHTML = `<div class="table-card">${emptyStateHtml("users", msg)}</div>`;
            return;
        }
    
@@ -309,28 +361,31 @@
        const pageItems = allPersons.slice(startIdx, startIdx + MEMBERS_PAGE_SIZE);
    
        wrap.innerHTML = `
-           <table class="data-table">
-               <thead><tr><th>Họ tên</th><th>Giới tính</th><th>Đời</th><th>Năm sinh</th><th>Trạng thái</th></tr></thead>
-               <tbody>
-                   ${pageItems.map(p => `
-                       <tr onclick="openDetail(${p.id}, 'members')">
-                           <td>
-                               <div class="member-name-cell">
-                                   ${renderAvatarHtml(p.full_name, p.avatar_path)}
-                                   <div>
-                                       <strong>${escapeHtml(p.full_name)}</strong>${p.nickname ? ` <span style="color:var(--color-ink-soft)">(${escapeHtml(p.nickname)})</span>` : ""}
+           <div class="table-card">
+               <table class="data-table">
+                   <thead><tr><th>Họ tên</th><th>Giới tính</th><th>Đời</th><th>Năm sinh</th><th>Trạng thái</th></tr></thead>
+                   <tbody>
+                       ${pageItems.map(p => `
+                           <tr class="clickable" onclick="openDetail(${p.id}, 'members')">
+                               <td>
+                                   <div class="member-name-cell">
+                                       ${renderAvatarHtml(p.full_name, p.avatar_path, "", p.gender)}
+                                       <div>
+                                           <div class="member-name">${escapeHtml(p.full_name)}</div>
+                                           ${p.nickname ? `<div class="member-nickname">${escapeHtml(p.nickname)}</div>` : ""}
+                                       </div>
                                    </div>
-                               </div>
-                           </td>
-                           <td>${genderLabel(p.gender)}</td>
-                           <td>${p.generation ?? "—"}</td>
-                           <td>${formatYear(p.birth_date)}</td>
-                           <td><span class="status-dot ${p.is_alive ? "alive" : "deceased"}"></span>${p.is_alive ? "Còn sống" : "Đã mất"}</td>
-                       </tr>
-                   `).join("")}
-               </tbody>
-           </table>
-           ${renderMembersPagination(total, totalPages)}
+                               </td>
+                               <td>${genderPill(p.gender)}</td>
+                               <td>${p.generation != null ? `<span class="pill pill-gen">Đời ${p.generation}</span>` : `<span class="cell-muted">—</span>`}</td>
+                               <td class="cell-muted">${formatYear(p.birth_date)}</td>
+                               <td>${statusPill(p.is_alive)}</td>
+                           </tr>
+                       `).join("")}
+                   </tbody>
+               </table>
+               ${renderMembersPagination(total, totalPages)}
+           </div>
        `;
    }
    
@@ -492,75 +547,92 @@
        document.querySelectorAll(".nav-item").forEach(el => el.classList.remove("active"));
        updateDetailBackButton();
    
-       document.getElementById("detail-name").textContent = person.full_name;
-       document.getElementById("detail-subtitle").textContent =
-           `${genderLabel(person.gender)} · ${person.is_alive ? "Còn sống" : "Đã mất"}` +
-           (person.generation != null ? ` · Đời ${person.generation}` : "");
+       // Tên, giới tính, trạng thái, đời đã hiển thị trong thẻ hồ sơ bên dưới
+       document.getElementById("detail-name").textContent = "Hồ sơ thành viên";
+       document.getElementById("detail-subtitle").textContent = "Thông tin cá nhân và quan hệ gia đình";
    
+       const spouseStatus = (s) => s.status === "married" ? "đang kết hôn" : s.status === "divorced" ? "đã ly hôn" : "góa";
+       const relationItems = (list, removeCall, extra) => list.length
+           ? list.map(r => `
+               <li>
+                   <button type="button" class="relation-person" onclick="openDetail(${r.id})" title="Xem hồ sơ">
+                       ${renderAvatarHtml(r.full_name, r.avatar_path, "", r.gender)}
+                       <span class="relation-name">${escapeHtml(r.full_name)}${extra ? ` <span class="relation-status">(${extra(r)})</span>` : ""}</span>
+                   </button>
+                   <button type="button" class="relation-remove" title="Xóa liên kết" onclick="${removeCall(r)}">${icon("x")}</button>
+               </li>`).join("")
+           : "<li class='relation-empty'>Chưa có thông tin</li>";
+       const relationSection = (title, iconName, list, removeCall, mode, addLabel, extra) => `
+           <div class="relation-section">
+               <div class="relation-heading">
+                   <h3 class="card-title">${icon(iconName)} ${title}${list.length ? ` <span class="card-count">${list.length}</span>` : ""}</h3>
+               </div>
+               <ul class="relation-list">${relationItems(list, removeCall, extra)}</ul>
+               <button type="button" class="btn-secondary btn btn-sm relation-add" onclick="openRelationModal('${mode}')">${icon("plus")} ${addLabel}</button>
+           </div>`;
+       const infoRow = (iconName, label, value, note) => `
+           <div class="info-row">
+               <div class="info-icon">${icon(iconName)}</div>
+               <div>
+                   <dt>${label}</dt>
+                   <dd class="${value ? "" : "muted"}">${value || "Chưa rõ"}${note ? ` <span class="info-note">(${escapeHtml(note)})</span>` : ""}</dd>
+               </div>
+           </div>`;
+
        const content = document.getElementById("detail-content");
        content.innerHTML = `
-           <div class="detail-header-row">
-               <div class="detail-avatar-wrap">
-                   ${renderAvatarHtml(person.full_name, person.avatar_path, "avatar-lg")}
+           <div class="profile-hero${person.is_alive ? "" : " is-deceased"}">
+               ${renderAvatarHtml(person.full_name, person.avatar_path, "avatar-xl", person.gender)}
+               <div class="profile-main">
+                   <h2 class="profile-name">${escapeHtml(person.full_name)}</h2>
+                   ${person.nickname ? `<div class="profile-nickname">Tên gọi khác: ${escapeHtml(person.nickname)}</div>` : ""}
+                   <div class="profile-tags">
+                       ${genderPill(person.gender)}
+                       ${statusPill(person.is_alive)}
+                       ${person.generation != null ? `<span class="pill pill-gen">${icon("layers")}Đời ${person.generation}</span>` : ""}
+                       ${person.birth_date ? `<span class="pill pill-outline">${formatYear(person.birth_date)}${!person.is_alive && person.death_date ? ` – ${formatYear(person.death_date)}` : ""}</span>` : ""}
+                   </div>
                </div>
-               <div class="avatar-upload-actions">
-                   <p class="avatar-hint">Ảnh đại diện thành viên</p>
+               <div class="profile-actions">
                    <input type="file" id="detail-avatar-input" accept="image/jpeg,image/png,image/webp,image/gif" hidden />
-                   <button type="button" class="btn-secondary btn" id="btn-detail-change-avatar">Đổi ảnh</button>
-                   <button type="button" class="btn-secondary btn" id="btn-detail-remove-avatar" ${person.avatar_path ? "" : "disabled"}>Xóa ảnh</button>
+                   <button type="button" class="btn-secondary btn btn-sm" id="btn-detail-change-avatar">${icon("image")} Đổi ảnh</button>
+                   <button type="button" class="btn-ghost btn btn-sm" id="btn-detail-remove-avatar" ${person.avatar_path ? "" : "disabled"}>Xóa ảnh</button>
                </div>
            </div>
            <div class="detail-grid">
                <div class="card">
-                   <h3 class="card-title">Thông tin cá nhân</h3>
-                   <p><strong>Ngày sinh:</strong> ${formatDateVN(person.birth_date) || "chưa rõ"} ${person.birth_date_note ? `(${escapeHtml(person.birth_date_note)})` : ""}</p>
-                   <p><strong>Nơi sinh:</strong> ${escapeHtml(person.birth_place) || "—"}</p>
-                   <p><strong>Nghề nghiệp:</strong> ${escapeHtml(person.occupation) || "—"}</p>
-                   ${!person.is_alive ? `<p><strong>Ngày mất:</strong> ${formatDateVN(person.death_date) || "chưa rõ"} ${person.death_date_note ? `(${escapeHtml(person.death_date_note)})` : ""}</p>` : ""}
-                   <p><strong>Tiểu sử:</strong><br>${escapeHtml(person.biography) || "—"}</p>
+                   <h3 class="card-title">${icon("user")} Thông tin cá nhân</h3>
+                   <dl class="info-list">
+                       ${infoRow("cake", "Ngày sinh", formatDateVN(person.birth_date), person.birth_date_note)}
+                       ${!person.is_alive ? infoRow("flame", "Ngày mất", formatDateVN(person.death_date), person.death_date_note) : ""}
+                       ${infoRow("pin", "Nơi sinh", escapeHtml(person.birth_place))}
+                       ${infoRow("briefcase", "Nghề nghiệp", escapeHtml(person.occupation))}
+                       <div class="info-row">
+                           <div class="info-icon">${icon("book")}</div>
+                           <div>
+                               <dt>Tiểu sử</dt>
+                               <dd class="info-bio ${person.biography ? "" : "muted"}">${escapeHtml(person.biography) || "Chưa có"}</dd>
+                           </div>
+                       </div>
+                   </dl>
                </div>
                <div class="card">
-                   <h3 class="card-title">Cha / Mẹ</h3>
-                   <ul class="relation-list">
-                       ${person.parents.length
-                           ? person.parents.map(p => `
-                               <li>
-                                   <span class="relation-name">${escapeHtml(p.full_name)}</span>
-                                   <button type="button" class="relation-remove" title="Xóa liên kết" onclick="removeParentChildLink(${p.id}, ${person.id})">✕</button>
-                               </li>`).join("")
-                           : "<li class='relation-empty'>Chưa có thông tin</li>"}
-                   </ul>
-                   <button class="btn-secondary btn" style="margin-top:10px;width:100%" onclick="openRelationModal('parent')">+ Thêm cha/mẹ</button>
-   
-                   <h3 class="card-title" style="margin-top:18px">Vợ / Chồng</h3>
-                   <ul class="relation-list">
-                       ${person.spouses.length
-                           ? person.spouses.map(s => `
-                               <li>
-                                   <span class="relation-name">${escapeHtml(s.full_name)} <span class="relation-status">(${s.status === "married" ? "đang kết hôn" : s.status === "divorced" ? "đã ly hôn" : "góa"})</span></span>
-                                   <button type="button" class="relation-remove" title="Xóa liên kết" onclick="removeMarriageLink(${s.marriage_id})">✕</button>
-                               </li>`).join("")
-                           : "<li class='relation-empty'>Chưa có thông tin</li>"}
-                   </ul>
-                   <button class="btn-secondary btn" style="margin-top:10px;width:100%" onclick="openRelationModal('spouse')">+ Thêm vợ/chồng</button>
+                   ${relationSection("Cha / Mẹ", "user", person.parents, (p) => `removeParentChildLink(${p.id}, ${person.id})`, "parent", "Thêm cha/mẹ")}
+                   ${relationSection("Vợ / Chồng", "heart", person.spouses, (s) => `removeMarriageLink(${s.marriage_id})`, "spouse", "Thêm vợ/chồng", spouseStatus)}
                </div>
                <div class="card">
-                   <h3 class="card-title">Con cái</h3>
-                   <ul class="relation-list">
-                       ${person.children.length
-                           ? person.children.map(c => `
-                               <li>
-                                   <span class="relation-name">${escapeHtml(c.full_name)}</span>
-                                   <button type="button" class="relation-remove" title="Xóa liên kết" onclick="removeParentChildLink(${person.id}, ${c.id})">✕</button>
-                               </li>`).join("")
-                           : "<li class='relation-empty'>Chưa có thông tin</li>"}
-                   </ul>
-                   <button class="btn-secondary btn" style="margin-top:10px;width:100%" onclick="openRelationModal('child')">+ Thêm con</button>
+                   ${relationSection("Con cái", "child", person.children, (c) => `removeParentChildLink(${person.id}, ${c.id})`, "child", "Thêm con")}
                </div>
            </div>
-           <div class="card">
-               <h3 class="card-title">Vùng nguy hiểm</h3>
-               <button class="btn btn-danger" onclick="deletePerson(${person.id})">Xóa thành viên này</button>
+           <div class="card danger-zone">
+               <div class="danger-zone-text">
+                   ${icon("alert")}
+                   <div>
+                       <div class="danger-zone-title">Xóa thành viên</div>
+                       <div class="danger-zone-desc">Xóa vĩnh viễn hồ sơ này cùng các liên kết quan hệ. Không thể hoàn tác.</div>
+                   </div>
+               </div>
+               <button class="btn btn-danger" onclick="deletePerson(${person.id})">${icon("trash")} Xóa thành viên này</button>
            </div>
        `;
    
@@ -720,25 +792,27 @@
            const msg = lastEventsData.length === 0
                ? "Chưa có sự kiện nào."
                : "Không có sự kiện nào thuộc loại này.";
-           list.innerHTML = `<div class="empty-state"><div class="empty-icon">✦</div>${msg}</div>`;
+           list.innerHTML = `<div class="table-card">${emptyStateHtml("calendar", msg)}</div>`;
            return;
        }
        list.innerHTML = `
-           <table class="data-table">
-               <thead><tr><th>Người liên quan</th><th>Loại</th><th>Ngày</th><th>Lịch</th><th>Mô tả</th><th></th></tr></thead>
-               <tbody>
-                   ${events.map(e => `
-                       <tr>
-                           <td>${e.full_name}</td>
-                           <td>${eventTypeLabel(e.event_type)}${e.auto ? ` <span class="event-auto-badge" title="Tự động lấy từ ngày sinh/ngày mất trong hồ sơ">Tự động</span>` : ""}</td>
-                           <td>${formatDateVN(e.event_date) || "—"}</td>
-                           <td>${e.calendar_type === "lunar" ? "Âm lịch" : "Dương lịch"}</td>
-                           <td>${e.description || "—"}</td>
-                           <td>${e.auto ? "" : `<button class="btn-secondary btn" onclick="deleteEvent(${e.id})">Xóa</button>`}</td>
-                       </tr>
-                   `).join("")}
-               </tbody>
-           </table>
+           <div class="table-card">
+               <table class="data-table">
+                   <thead><tr><th>Ngày</th><th>Người liên quan</th><th>Loại</th><th>Lịch</th><th>Mô tả</th><th></th></tr></thead>
+                   <tbody>
+                       ${events.map(e => `
+                           <tr>
+                               <td>${renderDateBadge(e.event_date)}</td>
+                               <td class="member-name">${escapeHtml(e.full_name)}</td>
+                               <td>${eventTypePill(e.event_type)}${e.auto ? ` <span class="event-auto-badge" title="Tự động lấy từ ngày sinh/ngày mất trong hồ sơ">Tự động</span>` : ""}</td>
+                               <td class="cell-muted">${e.calendar_type === "lunar" ? "Âm lịch" : "Dương lịch"}</td>
+                               <td class="cell-muted">${escapeHtml(e.description) || "—"}</td>
+                               <td class="cell-actions">${e.auto ? "" : `<button class="btn-ghost btn btn-sm" title="Xóa sự kiện" onclick="deleteEvent(${e.id})">${icon("trash")} Xóa</button>`}</td>
+                           </tr>
+                       `).join("")}
+                   </tbody>
+               </table>
+           </div>
        `;
    }
 
@@ -829,15 +903,17 @@ let lastTreeExport = null; // { svg, canvasWidth, canvasHeight } - dùng để x
 // CSS dùng màu chữ trực tiếp (không dùng var(--...)) vì khi xuất ảnh/PDF,
 // SVG được tách ra khỏi trang (blob/print riêng) nên không truy cập được biến CSS của :root.
 const TREE_SVG_STYLE = `
-.tree-node-card.deceased { opacity: 0.72; }
-.tree-node-card rect.card-bg { fill: #FBF5E7; stroke: #B8935A; stroke-width: 1.2; }
-.tree-node-card text.node-name { font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; font-size: 13.5px; font-weight: 600; fill: #2B2118; }
-.tree-node-card text.node-years { font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; font-size: 11.5px; fill: #6B5D48; }
-.tree-node-card text.node-avatar-letter { font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; font-weight: 600; fill: #FBF5E7; text-anchor: middle; dominant-baseline: central; }
-.tree-node-card text.gen-label { font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; font-size: 9.5px; font-weight: 600; fill: #8B2635; text-anchor: middle; }
-.edge-line { stroke: #B8935A; stroke-width: 1.6; fill: none; }
-.marriage-line { stroke: #8B2635; stroke-width: 2; fill: none; }
-.marriage-dot { fill: #8B2635; }
+.tree-node-card.deceased { opacity: 0.7; }
+.tree-node-card rect.card-bg { fill: #FFFCF7; stroke: #DCCBA8; stroke-width: 1.2; filter: url(#node-shadow); }
+.tree-node-card:hover rect.card-bg { stroke: #9A2C24; stroke-width: 1.8; }
+.tree-node-card text.node-name { font-family: "Segoe UI", -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif; font-size: 13.5px; font-weight: 600; fill: #2A1F17; }
+.tree-node-card text.node-spouse-name { font-family: "Segoe UI", -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif; font-size: 12px; font-weight: 500; fill: #6E604E; }
+.tree-node-card text.node-years { font-family: "Segoe UI", -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif; font-size: 11.5px; fill: #8A7B66; }
+.tree-node-card text.node-avatar-letter { font-family: "Segoe UI", -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif; font-weight: 700; fill: #FFFCF7; text-anchor: middle; dominant-baseline: central; }
+.tree-node-card text.gen-label { font-family: "Segoe UI", -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif; font-size: 9.5px; font-weight: 700; fill: #8A6526; text-anchor: middle; }
+.edge-line { stroke: #C4A46A; stroke-width: 1.6; fill: none; stroke-linejoin: round; }
+.marriage-line { stroke: #9A2C24; stroke-width: 2; fill: none; }
+.marriage-dot { fill: #9A2C24; stroke: #FFFCF7; stroke-width: 2; }
 `;
 
 function updateTreeZoomLabel() {
@@ -863,8 +939,8 @@ function setTreeScale(nextScale) {
    }
    
    function treeGenderColor(gender) {
-       if (gender === "male") return "#4A6B87";
-       if (gender === "female") return "#A65275";
+       if (gender === "male") return "#43678A";
+       if (gender === "female") return "#A54F72";
        return "#8A7F6B";
    }
    
@@ -1062,7 +1138,7 @@ async function renderTreeToCanvas(scaleFactor) {
         canvas.width = Math.ceil(canvasWidth * scaleFactor);
         canvas.height = Math.ceil(canvasHeight * scaleFactor);
         const ctx = canvas.getContext("2d");
-        ctx.fillStyle = "#FBF5E7";
+        ctx.fillStyle = "#FFFCF7";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
         return canvas;
@@ -1116,7 +1192,7 @@ function exportTreePdfViaPrint() {
 
 document.getElementById("btn-tree-export-png").addEventListener("click", () => exportTreeRaster("png"));
 document.getElementById("btn-tree-export-jpg").addEventListener("click", () => exportTreeRaster("jpg"));
-document.getElementById("btn-tree-export-pdf").addEventListener("click", () => exportTreePdfViaPrint());
+document.getElementById("btn-tree-export-pdf")?.addEventListener("click", () => exportTreePdfViaPrint());
 
    document.querySelectorAll(".tree-mode-btn").forEach((btn) => {
        btn.addEventListener("click", () => setTreeDisplayMode(btn.dataset.mode));
@@ -1286,7 +1362,7 @@ document.getElementById("btn-tree-export-pdf").addEventListener("click", () => e
            return (posX[unit.ids[0]] + NODE_W / 2 + posX[unit.ids[1]] + NODE_W / 2) / 2;
        }
    
-       let svgDefs = "<defs>";
+       let svgDefs = "<defs><filter id=\"node-shadow\" x=\"-10%\" y=\"-20%\" width=\"120%\" height=\"150%\"><feDropShadow dx=\"0\" dy=\"2\" stdDeviation=\"3\" flood-color=\"#2A1F17\" flood-opacity=\"0.12\" /></filter>";
        persons.filter((p) => visibleIds.has(p.id) && p.avatar_path).forEach((p) => {
            svgDefs += `<clipPath id="clip-${p.id}"><circle cx="0" cy="0" r="${NODE_AVATAR_R}" /></clipPath>`;
        });
@@ -1328,6 +1404,7 @@ document.getElementById("btn-tree-export-pdf").addEventListener("click", () => e
            const genderColor = treeGenderColor(p.gender);
            if (p.avatar_path) {
                return `
+                   <circle cx="${cx}" cy="${cy}" r="${r + 2}" fill="#FFFCF7" stroke="${genderColor}" stroke-opacity="0.35" />
                    <circle cx="${cx}" cy="${cy}" r="${r}" fill="${genderColor}" />
                    <g transform="translate(${cx}, ${cy})">
                        <image href="/uploads/${p.avatar_path}" x="${-r}" y="${-r}" width="${r * 2}" height="${r * 2}"
@@ -1335,7 +1412,8 @@ document.getElementById("btn-tree-export-pdf").addEventListener("click", () => e
                    </g>`;
            }
            return `
-               <circle cx="${cx}" cy="${cy}" r="${r}" fill="${genderColor}" />
+               <circle cx="${cx}" cy="${cy}" r="${r + 2}" fill="#FFFCF7" stroke="${genderColor}" stroke-opacity="0.35" />
+                   <circle cx="${cx}" cy="${cy}" r="${r}" fill="${genderColor}" />
                <text class="node-avatar-letter" x="${cx}" y="${cy}" text-anchor="middle" font-size="${Math.round(r * 0.75)}">${escapeHtml(treeAvatarInitial(p.full_name))}</text>`;
        }
    
@@ -1350,11 +1428,12 @@ document.getElementById("btn-tree-export-pdf").addEventListener("click", () => e
                    const alive = p.is_alive === 1 || p.is_alive === true;
                    svgParts.push(`
                        <g class="tree-node-card${alive ? "" : " deceased"}" onclick="openDetailFromTree(${p.id})">
-                           <rect class="card-bg" x="${x}" y="${y}" width="${NODE_W}" height="${NODE_H}" rx="8" />
+                           <rect class="card-bg" x="${x}" y="${y}" width="${NODE_W}" height="${NODE_H}" rx="10" />
+                           <rect x="${x + 5}" y="${y + 14}" width="3" height="${NODE_H - 28}" rx="1.5" fill="${treeGenderColor(p.gender)}" />
                            ${drawAvatar(p, x + 34, y + NODE_H / 2, NODE_AVATAR_R)}
                            <text class="node-name" x="${x + NODE_TEXT_X}" y="${y + 27}">${escapeHtml(truncate(p.full_name, 18))}</text>
                            <text class="node-years" x="${x + NODE_TEXT_X}" y="${y + 45}">${formatTreeYears(p)}</text>
-                           <rect x="${x + NODE_W - 58}" y="${y + NODE_H - 22}" width="50" height="16" rx="8" fill="rgba(139,38,53,0.1)" />
+                           <rect x="${x + NODE_W - 58}" y="${y + NODE_H - 22}" width="50" height="16" rx="8" fill="rgba(184,137,59,0.16)" />
                            <text class="gen-label" x="${x + NODE_W - 33}" y="${y + NODE_H - 10}">Đời ${generation[pid]}</text>
                        </g>
                    `);
@@ -1369,13 +1448,14 @@ document.getElementById("btn-tree-export-pdf").addEventListener("click", () => e
                const alive = primary.is_alive === 1 || primary.is_alive === true;
                svgParts.push(`
                    <g class="tree-node-card${alive ? "" : " deceased"}" onclick="openDetailFromTree(${primary.id})">
-                       <rect class="card-bg" x="${x}" y="${y}" width="${NODE_W}" height="${h}" rx="8" />
+                       <rect class="card-bg" x="${x}" y="${y}" width="${NODE_W}" height="${h}" rx="10" />
+                       <rect x="${x + 5}" y="${y + 14}" width="3" height="${h - 28}" rx="1.5" fill="${treeGenderColor(primary.gender)}" />
                        ${drawAvatar(primary, x + 28, y + 27, 15)}
                        ${drawAvatar(spouse, x + 28, y + 56, 12)}
                        <text class="node-name" x="${x + 54}" y="${y + 23}">${escapeHtml(truncate(primary.full_name, 16))}</text>
                        <text class="node-spouse-name" x="${x + 54}" y="${y + 40}">&amp; ${escapeHtml(truncate(spouse.full_name, 16))}</text>
                        <text class="node-years" x="${x + 54}" y="${y + 58}">${formatTreeYears(primary)}</text>
-                       <rect x="${x + NODE_W - 58}" y="${y + h - 22}" width="50" height="16" rx="8" fill="rgba(139,38,53,0.1)" />
+                       <rect x="${x + NODE_W - 58}" y="${y + h - 22}" width="50" height="16" rx="8" fill="rgba(184,137,59,0.16)" />
                        <text class="gen-label" x="${x + NODE_W - 33}" y="${y + h - 10}">Đời ${generation[primaryId]}</text>
                    </g>
                `);
@@ -1391,7 +1471,7 @@ document.getElementById("btn-tree-export-pdf").addEventListener("click", () => e
        const wrap = document.getElementById("tree-canvas-wrap");
     updateTreeZoomLabel();
        if (persons.filter((p) => visibleIds.has(p.id)).length === 0) {
-           wrap.innerHTML = `<div class="empty-state"><div class="empty-icon">⌂</div>Chưa có dữ liệu để vẽ cây gia phả. Hãy thêm thành viên và thiết lập quan hệ trước.</div>`;
+           wrap.innerHTML = `<div class="empty-state"><div class="empty-icon">${icon("tree")}</div>Chưa có dữ liệu để vẽ cây gia phả. Hãy thêm thành viên và thiết lập quan hệ trước.</div>`;
        } else {
         wrap.innerHTML = `
             <div class="tree-scale-box" style="width:${scaledWidth}px;height:${scaledHeight}px">
