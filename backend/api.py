@@ -495,6 +495,23 @@ def create_event(ev: EventIn):
         conn.close()
 
 
+@app.put("/api/events/{event_id}")
+def update_event(event_id: int, ev: EventIn):
+    conn = database.get_connection()
+    try:
+        existing = conn.execute("SELECT id FROM events WHERE id = ?", (event_id,)).fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail="Không tìm thấy sự kiện")
+        conn.execute("""
+            UPDATE events SET person_id=?, event_type=?, event_date=?, calendar_type=?, description=?, recurring=?
+            WHERE id=?
+        """, (ev.person_id, ev.event_type, ev.event_date, ev.calendar_type, ev.description, ev.recurring, event_id))
+        conn.commit()
+        return {"ok": True}
+    finally:
+        conn.close()
+
+
 @app.delete("/api/events/{event_id}")
 def delete_event(event_id: int):
     conn = database.get_connection()

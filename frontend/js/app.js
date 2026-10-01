@@ -287,10 +287,21 @@
        return `<div class="date-badge" title="${formatDateVN(dateStr)}"><div class="date-badge-month">Th ${parseInt(m)}</div><div class="date-badge-day">${d}</div></div>`;
    }
 
+   // Các loại sự kiện: nhãn, icon, màu (class pill-<value> trong style.css).
+   // Thêm loại mới: thêm 1 dòng ở đây + <option> trong #e-event_type + nút lọc trong index.html.
+   const EVENT_TYPES = {
+       death_anniversary: { label: "Ngày giỗ", icon: "flame" },
+       birthday: { label: "Sinh nhật", icon: "cake" },
+       wedding: { label: "Ngày cưới", icon: "heart" },
+       longevity: { label: "Mừng thọ", icon: "gift" },
+       tomb_visit: { label: "Tảo mộ / Thanh minh", icon: "leaf" },
+       clan_meeting: { label: "Giỗ tổ / Họp họ", icon: "users" },
+       custom: { label: "Sự kiện khác", icon: "star" },
+   };
+
    function eventTypePill(t) {
-       const iconName = t === "death_anniversary" ? "flame" : t === "birthday" ? "cake" : "star";
-       const cls = t === "death_anniversary" || t === "birthday" ? t : "custom";
-       return `<span class="pill pill-${cls}">${icon(iconName)}${eventTypeLabel(t)}</span>`;
+       const type = EVENT_TYPES[t] ? t : "custom";
+       return `<span class="pill pill-${type}">${icon(EVENT_TYPES[type].icon)}${eventTypeLabel(t)}</span>`;
    }
    
    // Đếm số đời dựa trên quan hệ cha/mẹ (giống thuật toán vẽ cây), vì cột
@@ -308,9 +319,7 @@
    }
 
    function eventTypeLabel(t) {
-       if (t === "death_anniversary") return "Ngày giỗ";
-       if (t === "birthday") return "Sinh nhật";
-       return "Sự kiện";
+       return (EVENT_TYPES[t] || EVENT_TYPES.custom).label;
    }
    
    // ============================================================
@@ -775,6 +784,7 @@
    // TAB: SỰ KIỆN
    // ============================================================
    let lastEventsData = [];
+   let renderedEvents = []; // danh sách đang hiển thị (đã lọc) — dùng khi bấm Sửa
    let eventsFilter = "all";
 
    async function loadEvents() {
@@ -795,19 +805,25 @@
            list.innerHTML = `<div class="table-card">${emptyStateHtml("calendar", msg)}</div>`;
            return;
        }
+       renderedEvents = events;
        list.innerHTML = `
            <div class="table-card">
                <table class="data-table">
                    <thead><tr><th>Ngày</th><th>Người liên quan</th><th>Loại</th><th>Lịch</th><th>Mô tả</th><th></th></tr></thead>
                    <tbody>
-                       ${events.map(e => `
-                           <tr>
+                       ${events.map((e, i) => `
+                           <tr class="clickable" onclick="openEventModal(renderedEvents[${i}])" title="Bấm để sửa">
                                <td>${renderDateBadge(e.event_date)}</td>
                                <td class="member-name">${escapeHtml(e.full_name)}</td>
-                               <td>${eventTypePill(e.event_type)}${e.auto ? ` <span class="event-auto-badge" title="Tự động lấy từ ngày sinh/ngày mất trong hồ sơ">Tự động</span>` : ""}</td>
+                               <td><div class="tag-group">${eventTypePill(e.event_type)}${e.auto ? `<span class="event-auto-badge" title="Tự động lấy từ ngày sinh/ngày mất trong hồ sơ">Tự động</span>` : ""}</div></td>
                                <td class="cell-muted">${e.calendar_type === "lunar" ? "Âm lịch" : "Dương lịch"}</td>
                                <td class="cell-muted">${escapeHtml(e.description) || "—"}</td>
-                               <td class="cell-actions">${e.auto ? "" : `<button class="btn-ghost btn btn-sm" title="Xóa sự kiện" onclick="deleteEvent(${e.id})">${icon("trash")} Xóa</button>`}</td>
+                               <td class="cell-actions" onclick="event.stopPropagation()">
+                                   <div class="btn-row row-actions">
+                                       <button class="btn-ghost btn btn-sm" title="Sửa sự kiện" onclick="openEventModal(renderedEvents[${i}])">${icon("edit")} Sửa</button>
+                                       ${e.auto ? "" : `<button class="btn-ghost btn btn-sm btn-ghost-danger" title="Xóa sự kiện" onclick="deleteEvent(${e.id})">${icon("trash")} Xóa</button>`}
+                                   </div>
+                               </td>
                            </tr>
                        `).join("")}
                    </tbody>
@@ -837,61 +853,96 @@
        loadEvents();
    }
    
+   // ============================================================
+   // MODAL: THÊM / SỬA SỰ KIỆN
+   // - ev = null      -> thêm mới
+   // - ev có id       -> sửa sự kiện đã lưu (PUT)
+   // - ev.auto = true -> sự kiện tự sinh từ hồ sơ: lưu lại sẽ tạo 1 bản riêng
+   //   (POST), backend ưu tiên bản riêng này thay cho bản tự sinh cùng loại.
+   // ============================================================
    const eventModal = document.getElementById("event-modal");
-   document.getElementById("btn-add-event").addEventListener("click", async () => {
+   let editingEvent = null;
+
+   async function openEventModal(ev) {
+       editingEvent = ev || null;
        const persons = await apiGet("/persons");
        const sel = document.getElementById("e-person_id");
        sel.innerHTML = persons.map(p => `<option value="${p.id}">${escapeHtml(p.full_name)}</option>`).join("");
        document.getElementById("event-form").reset();
-       SearchSelect.refresh(sel);
+
+       const isEdit = !!ev;
+       document.getElementById("event-modal-title").textContent = isEdit ? "Sửa sự kiện" : "Thêm sự kiện";
+       document.getElementById("event-modal-subtitle").textContent = ev?.auto
+           ? "Sự kiện này tự lấy từ hồ sơ. Lưu lại sẽ tạo bản riêng (VD: đổi sang ngày âm lịch) thay cho bản tự động."
+           : "Ngày giỗ, sinh nhật hoặc sự kiện quan trọng của dòng họ";
+       if (isEdit) {
+           sel.value = String(ev.person_id);
+           document.getElementById("e-event_type").value = EVENT_TYPES[ev.event_type] ? ev.event_type : "custom";
+           document.getElementById("e-calendar_type").value = ev.calendar_type || "solar";
+           document.getElementById("e-event_date").value = ev.event_date || "";
+           document.getElementById("e-description").value = ev.description || "";
+       }
+       ["e-person_id", "e-event_type", "e-calendar_type"].forEach((id) => SearchSelect.refresh(document.getElementById(id)));
        SearchSelect.closeAll();
        eventModal.classList.add("open");
-   });
-   document.getElementById("btn-cancel-event").addEventListener("click", () => {
+   }
+
+   function closeEventModal() {
        SearchSelect.closeAll();
        eventModal.classList.remove("open");
-   });
-   
+       editingEvent = null;
+   }
+
+   document.getElementById("btn-add-event").addEventListener("click", () => openEventModal(null));
+   document.getElementById("btn-cancel-event").addEventListener("click", closeEventModal);
+
    document.getElementById("event-form").addEventListener("submit", async (e) => {
        e.preventDefault();
-       await apiSend("/events", "POST", {
+       const payload = {
            person_id: parseInt(document.getElementById("e-person_id").value),
            event_type: document.getElementById("e-event_type").value,
            calendar_type: document.getElementById("e-calendar_type").value,
            event_date: document.getElementById("e-event_date").value || null,
            description: document.getElementById("e-description").value || null,
-       });
-       eventModal.classList.remove("open");
-       loadEvents();
+       };
+       try {
+           if (editingEvent?.id) {
+               await apiSend(`/events/${editingEvent.id}`, "PUT", payload);
+               showToast("Đã lưu thay đổi sự kiện", "success");
+           } else {
+               await apiSend("/events", "POST", payload);
+               showToast(editingEvent ? "Đã lưu sự kiện" : "Đã thêm sự kiện", "success");
+           }
+           closeEventModal();
+           loadEvents();
+       } catch (err) {
+           showToast(err.message, "error");
+       }
    });
    
    // ============================================================
    // TAB: CÂY GIA PHẢ
    // ------------------------------------------------------------
    // THUẬT TOÁN BỐ CỤC: đệ quy từ gốc xuống (kiểu Reingold-Tilford rút gọn).
-   // Ý tưởng cốt lõi để tránh lỗi "con cùng cha/mẹ bị xen bởi nhánh khác":
-   //   1) Duyệt cây THẬT (mỗi người chỉ đứng ở đúng 1 vị trí), không xếp
-   //      từng "hàng" độc lập rồi vá lỗi chồng lấn như bản cũ.
-   //   2) Mỗi nhánh (1 người/1 cặp vợ chồng + toàn bộ hậu duệ của họ) được
-   //      cấp riêng 1 "băng ngang" (khoảng x cố định) — không nhánh nào
-   //      được phép lấn sang băng của nhánh khác. Vì vậy anh chị em ruột
-   //      (chung cha/mẹ) LUÔN nằm cạnh nhau, tuyệt đối không bị xen.
-   //   3) Độ rộng mỗi băng = tính từ DƯỚI LÊN (con cháu quyết định băng
-   //      cha/mẹ cần rộng bao nhiêu), rồi gán toạ độ TỪ TRÊN XUỐNG.
+   //   1) Mỗi "gia đình" = 1 người trong họ + TẤT CẢ vợ/chồng của họ (hỗ trợ
+   //      tái hôn). Dâu/rể đứng cạnh vợ/chồng, không vẽ lặp ở nhà cha mẹ ruột
+   //      mà nối về đó bằng nét đứt.
+   //   2) Con gắn vào đúng gia đình của cha/mẹ, đường nối xuất phát từ đúng
+   //      cặp cha mẹ (con vợ cả / con vợ hai / con riêng tách nhánh riêng).
+   //   3) Mỗi nhánh được cấp riêng 1 "băng ngang" — anh chị em ruột LUÔN
+   //      nằm cạnh nhau, xếp theo năm sinh. Độ rộng băng tính TỪ DƯỚI LÊN,
+   //      toạ độ gán TỪ TRÊN XUỐNG.
+   //   4) Dòng họ lớn nhất làm cây chính, các gia đình bên ngoại/nội nhỏ
+   //      hơn đứng sau — không còn phụ thuộc thứ tự tên theo bảng chữ cái.
    // ============================================================
    const NODE_W = 190;
    const NODE_H = 68;
-   const NODE_H_MERGED = 82; // Thẻ gộp vợ/chồng cao hơn để chứa thêm 1 dòng tên
    const H_GAP = 46;
    const V_GAP = 120;
    const NODE_TOP = 40;
    const NODE_AVATAR_R = 20;
    const NODE_TEXT_X = 64;
    
-   // Chế độ hiển thị vợ/chồng trên cây:
-   //   'separate' = vợ/chồng là 2 thẻ riêng, nối bằng 1 đường kèm chấm tròn
-   //   'merged'   = vợ/chồng gộp chung 1 thẻ (thẻ của người huyết thống, vợ/chồng hiện nhỏ bên trong)
-   let treeDisplayMode = "separate";
    let lastTreeData = null;
    let lastTreeRootId = null;
 let treeScale = 1;
@@ -907,13 +958,15 @@ const TREE_SVG_STYLE = `
 .tree-node-card rect.card-bg { fill: #FFFCF7; stroke: #DCCBA8; stroke-width: 1.2; filter: url(#node-shadow); }
 .tree-node-card:hover rect.card-bg { stroke: #9A2C24; stroke-width: 1.8; }
 .tree-node-card text.node-name { font-family: "Segoe UI", -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif; font-size: 13.5px; font-weight: 600; fill: #2A1F17; }
-.tree-node-card text.node-spouse-name { font-family: "Segoe UI", -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif; font-size: 12px; font-weight: 500; fill: #6E604E; }
 .tree-node-card text.node-years { font-family: "Segoe UI", -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif; font-size: 11.5px; fill: #8A7B66; }
 .tree-node-card text.node-avatar-letter { font-family: "Segoe UI", -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif; font-weight: 700; fill: #FFFCF7; text-anchor: middle; dominant-baseline: central; }
 .tree-node-card text.gen-label { font-family: "Segoe UI", -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif; font-size: 9.5px; font-weight: 700; fill: #8A6526; text-anchor: middle; }
 .edge-line { stroke: #C4A46A; stroke-width: 1.6; fill: none; stroke-linejoin: round; }
 .marriage-line { stroke: #9A2C24; stroke-width: 2; fill: none; }
 .marriage-dot { fill: #9A2C24; stroke: #FFFCF7; stroke-width: 2; }
+.marriage-line.divorced { stroke-dasharray: 6 4; opacity: 0.7; }
+.marriage-line.extra { stroke-dasharray: 4 4; stroke-width: 1.6; }
+.cross-line { stroke: #B8893B; stroke-width: 1.4; stroke-dasharray: 5 4; fill: none; opacity: 0.85; }
 `;
 
 function updateTreeZoomLabel() {
@@ -928,15 +981,6 @@ function setTreeScale(nextScale) {
     updateTreeZoomLabel();
     if (lastTreeData) drawTree(lastTreeData, lastTreeRootId);
 }
-   
-   function setTreeDisplayMode(mode) {
-       if (treeDisplayMode === mode) return;
-       treeDisplayMode = mode;
-       document.querySelectorAll(".tree-mode-btn").forEach((b) => {
-           b.classList.toggle("active", b.dataset.mode === mode);
-       });
-       if (lastTreeData) drawTree(lastTreeData, lastTreeRootId);
-   }
    
    function treeGenderColor(gender) {
        if (gender === "male") return "#43678A";
@@ -969,6 +1013,17 @@ function setTreeScale(nextScale) {
                    const g = generation[link.parent_id] + 1;
                    if (generation[link.child_id] == null || generation[link.child_id] < g) {
                        generation[link.child_id] = g;
+                       changed = true;
+                   }
+               }
+               // Gốc của 1 gia đình bên ngoại/nội (không có cha mẹ trong gia phả) có con
+               // kết hôn vào đời sâu hơn -> hạ cả gốc đó xuống để cha mẹ luôn ngay trên con 1 đời.
+               // Chỉ áp dụng cho gốc, tránh vòng lặp vô hạn khi có hôn nhân lệch đời.
+               const parentIsRoot = !(parentsOf[link.parent_id] || []).some((pid) => visibleIds.has(pid));
+               if (parentIsRoot && generation[link.child_id] != null) {
+                   const need = generation[link.child_id] - 1;
+                   if (generation[link.parent_id] == null || generation[link.parent_id] < need) {
+                       generation[link.parent_id] = need;
                        changed = true;
                    }
                }
@@ -1194,22 +1249,19 @@ document.getElementById("btn-tree-export-png").addEventListener("click", () => e
 document.getElementById("btn-tree-export-jpg").addEventListener("click", () => exportTreeRaster("jpg"));
 document.getElementById("btn-tree-export-pdf")?.addEventListener("click", () => exportTreePdfViaPrint());
 
-   document.querySelectorAll(".tree-mode-btn").forEach((btn) => {
-       btn.addEventListener("click", () => setTreeDisplayMode(btn.dataset.mode));
-   });
-   
    function drawTree(data, rootId) {
        lastTreeRootId = rootId;
        const { persons, parent_child, marriages } = data;
        const byId = Object.fromEntries(persons.map((p) => [p.id, p]));
-   
+
        const childrenOf = {};
        const parentsOf = {};
        parent_child.forEach((link) => {
+           if (!byId[link.parent_id] || !byId[link.child_id]) return;
            (childrenOf[link.parent_id] ??= []).push(link.child_id);
            (parentsOf[link.child_id] ??= []).push(link.parent_id);
        });
-   
+
        // Xác định người sẽ hiển thị: toàn bộ, hoặc chỉ hậu duệ + vợ/chồng của rootId
        let visibleIds = new Set(persons.map((p) => p.id));
        if (rootId) {
@@ -1230,176 +1282,262 @@ document.getElementById("btn-tree-export-pdf")?.addEventListener("click", () => 
                });
            }
        }
-   
+       const isVisible = (id) => visibleIds.has(id);
+       const visibleParents = (id) => (parentsOf[id] || []).filter(isVisible);
+
        const generation = treeComputeGenerations(persons, parent_child, marriages, visibleIds, parentsOf);
-   
+
+       // Anh chị em xếp theo ngày sinh (chưa rõ ngày sinh thì xếp cuối), trùng thì theo tên
+       const birthKey = (id) => byId[id].birth_date || "9999";
+       const byBirth = (a, b) =>
+           birthKey(a).localeCompare(birthKey(b)) || byId[a].full_name.localeCompare(byId[b].full_name, "vi");
+
        // ============================================================
-       // BƯỚC 1: DUYỆT TỪ GỐC XUỐNG, DỰNG CÂY THẬT (mỗi người/cặp = 1 "unit")
+       // BƯỚC 1: MỖI CUỘC HÔN NHÂN -> 1 "CHỦ" (người trong họ) + 1 "DÂU/RỂ"
+       // - Người có cha/mẹ trong gia phả là người trong họ -> làm chủ.
+       // - Cả hai đều có cha/mẹ trong gia phả -> theo bên chồng (gia phả Việt
+       //   theo dòng nội), bên vợ được nối tới bằng đường nét đứt.
+       // - 1 người làm chủ được NHIỀU vợ/chồng (tái hôn) -> vẽ đủ cạnh nhau.
        // ============================================================
-       const placed = new Set(); // người đã được gán vào 1 vị trí trên cây
-   
-       function findSpouseUnplaced(id) {
-           const rel = marriages.find(
-               (m) =>
-                   ((m.person1_id === id && visibleIds.has(m.person2_id)) ||
-                       (m.person2_id === id && visibleIds.has(m.person1_id))) &&
-                   generation[m.person1_id] === generation[m.person2_id]
-           );
-           if (!rel) return null;
-           const spouseId = rel.person1_id === id ? rel.person2_id : rel.person1_id;
-           return placed.has(spouseId) ? null : spouseId;
+       const hostOf = {};    // dâu/rể -> người chủ
+       const spousesOf = {}; // người chủ -> [dâu/rể]
+       const marriageStatus = {};
+       const extraMarriages = []; // hôn nhân không xếp cạnh nhau được -> nối nét đứt
+       const pairKey = (a, b) => (a < b ? `${a}-${b}` : `${b}-${a}`);
+
+       function preferredHost(a, b) {
+           const aBlood = visibleParents(a).length > 0;
+           const bBlood = visibleParents(b).length > 0;
+           if (aBlood !== bBlood) return aBlood ? a : b;
+           const aMale = byId[a].gender === "male";
+           const bMale = byId[b].gender === "male";
+           if (aMale !== bMale) return aMale ? a : b;
+           return Math.min(a, b);
        }
-   
-       // bloodId = người thuộc huyết thống (đến từ cha/mẹ); nếu có vợ/chồng thì gộp thành 1 "unit"
-       function makeUnit(bloodId) {
-           if (placed.has(bloodId)) return null;
-           placed.add(bloodId);
-           const spouseId = findSpouseUnplaced(bloodId);
-           if (spouseId != null) placed.add(spouseId);
-           return spouseId != null
-               ? { type: "couple", ids: [bloodId, spouseId] } // ids[0] luôn là người huyết thống
-               : { type: "single", ids: [bloodId] };
-       }
-   
-       function childIdsOfUnit(unit) {
-           const set = new Set();
-           unit.ids.forEach((pid) => (childrenOf[pid] || []).forEach((cid) => {
-               if (visibleIds.has(cid) && !placed.has(cid)) set.add(cid);
-           }));
-           return [...set].sort((a, b) => byId[a].full_name.localeCompare(byId[b].full_name));
-       }
-   
-       function buildNode(unit) {
-           const children = [];
-           childIdsOfUnit(unit).forEach((cid) => {
-               const cu = makeUnit(cid);
-               if (cu) children.push(buildNode(cu));
+
+       marriages
+           .filter((m) => isVisible(m.person1_id) && isVisible(m.person2_id) && m.person1_id !== m.person2_id)
+           .forEach((m) => {
+               marriageStatus[pairKey(m.person1_id, m.person2_id)] = m.status;
+               let host = preferredHost(m.person1_id, m.person2_id);
+               let guest = host === m.person1_id ? m.person2_id : m.person1_id;
+               // Người kia đã là chủ của 1 gia đình khác -> đổi vai để không phải tách gia đình đó
+               if (spousesOf[guest]?.length && !spousesOf[host]?.length) [host, guest] = [guest, host];
+               if (hostOf[host] != null || hostOf[guest] != null || spousesOf[guest]?.length) {
+                   extraMarriages.push([m.person1_id, m.person2_id]);
+                   return;
+               }
+               hostOf[guest] = host;
+               (spousesOf[host] ??= []).push(guest);
            });
-           return { unit, children };
+
+       // Thẻ của 1 gia đình (trái -> phải): vợ/chồng xen kẽ 2 bên người chủ
+       // 1 vợ/chồng: [chủ][vc1] — 2 vợ/chồng: [vc2][chủ][vc1] — ...
+       const cardsCache = {};
+       function cardsOf(hostId) {
+           if (cardsCache[hostId]) return cardsCache[hostId];
+           const left = [];
+           const right = [];
+           (spousesOf[hostId] || []).forEach((s, i) => (i % 2 === 0 ? right : left).push(s));
+           return (cardsCache[hostId] = [...left.reverse(), hostId, ...right]);
        }
-   
-       // Gốc: người hiển thị nhưng không có cha/mẹ nào cũng đang hiển thị
-       const rootIds = persons
-           .filter((p) => visibleIds.has(p.id) && !(parentsOf[p.id] || []).some((pid) => visibleIds.has(pid)))
-           .sort((a, b) => byId[a.id].full_name.localeCompare(byId[b.id].full_name))
-           .map((p) => p.id);
-   
-       const forest = [];
-       rootIds.forEach((id) => {
-           const u = makeUnit(id);
-           if (u) forest.push(buildNode(u));
-       });
-       // An toàn: nếu còn ai chưa được xếp (trường hợp dữ liệu vòng lặp hiếm gặp), thêm làm gốc lẻ
-       persons.filter((p) => visibleIds.has(p.id) && !placed.has(p.id)).forEach((p) => {
-           const u = makeUnit(p.id);
-           if (u) forest.push(buildNode(u));
-       });
-   
+       const unitOfPerson = (id) => hostOf[id] ?? id;
+
        // ============================================================
-       // BƯỚC 2: TÍNH ĐỘ RỘNG BĂNG CỦA MỖI NHÁNH (đệ quy TỪ DƯỚI LÊN)
+       // BƯỚC 2: GẮN MỖI NGƯỜI TRONG HỌ VÀO ĐÚNG GIA ĐÌNH CỦA CHA/MẸ
+       // (dâu/rể không được gắn vào gia đình cha mẹ ruột — họ đứng cạnh
+       //  vợ/chồng, đường nối về cha mẹ ruột vẽ nét đứt ở bước 5)
        // ============================================================
-       function unitWidth(unit) {
-           if (treeDisplayMode === "merged") return NODE_W;
-           return unit.type === "couple" ? NODE_W * 2 + H_GAP : NODE_W;
+       const primaryIds = persons.map((p) => p.id).filter((id) => isVisible(id) && hostOf[id] == null);
+       const childLinks = {}; // hostId -> [{ childId, parentIds }]
+       primaryIds.forEach((cid) => {
+           const ps = visibleParents(cid);
+           if (!ps.length) return;
+           // Ưu tiên cha/mẹ là người chủ của gia đình; có cả cha lẫn mẹ là người chủ thì theo cha
+           const sorted = [...ps].sort((a, b) =>
+               (hostOf[a] != null) - (hostOf[b] != null) ||
+               (byId[b].gender === "male") - (byId[a].gender === "male"));
+           const hostId = unitOfPerson(sorted[0]);
+           if (hostId === cid) return;
+           const cards = cardsOf(hostId);
+           (childLinks[hostId] ??= []).push({ childId: cid, parentIds: ps.filter((p) => cards.includes(p)) });
+       });
+
+       // ============================================================
+       // BƯỚC 3: DỰNG CÂY (mỗi gia đình đứng ở đúng 1 vị trí)
+       // ============================================================
+       const built = new Set();
+       function build(hostId) {
+           built.add(hostId);
+           const cards = cardsOf(hostId);
+           // Con xếp theo nhóm cha/mẹ (con vợ trái ở trái, con vợ phải ở phải), trong nhóm theo ngày sinh
+           const slot = (l) => l.parentIds.reduce((s, p) => s + cards.indexOf(p), 0) / l.parentIds.length;
+           const links = [...(childLinks[hostId] || [])].sort((a, b) => slot(a) - slot(b) || byBirth(a.childId, b.childId));
+           const children = [];
+           links.forEach((l) => {
+               if (built.has(l.childId)) return; // chống vòng lặp khi dữ liệu sai
+               const child = build(l.childId);
+               child.parentIds = l.parentIds;
+               children.push(child);
+           });
+           return { id: hostId, cards, children };
        }
-       function computeWidth(node) {
-           const uw = unitWidth(node.unit);
-           if (node.children.length === 0) return (node.width = uw);
-           const childrenTotal = node.children.reduce((s, c) => s + computeWidth(c), 0) + (node.children.length - 1) * H_GAP;
-           return (node.width = Math.max(uw, childrenTotal));
+
+       const forest = primaryIds.filter((id) => visibleParents(id).length === 0).map(build);
+       // An toàn: còn ai chưa được xếp (dữ liệu vòng lặp hiếm gặp) -> thêm làm gốc lẻ
+       primaryIds.filter((id) => !built.has(id)).forEach((id) => forest.push(build(id)));
+       // Dòng họ lớn nhất đứng đầu (bên trái), các gia đình bên ngoại/nội nhỏ hơn xếp sau
+       const sizeOf = (n) => n.cards.length + n.children.reduce((s, c) => s + sizeOf(c), 0);
+       forest.sort((a, b) => sizeOf(b) - sizeOf(a) || byBirth(a.id, b.id));
+
+       // ============================================================
+       // BƯỚC 4: TÍNH ĐỘ RỘNG BĂNG (từ dưới lên) & GÁN TOẠ ĐỘ X (từ trên xuống)
+       // Mỗi nhánh nằm gọn trong băng của nó -> anh chị em ruột luôn cạnh nhau.
+       // ============================================================
+       const CARD_STEP = NODE_W + H_GAP;
+       function computeWidth(n) {
+           n.unitW = n.cards.length * NODE_W + (n.cards.length - 1) * H_GAP;
+           n.childrenW = n.children.reduce((s, c) => s + computeWidth(c), 0) + Math.max(0, n.children.length - 1) * H_GAP;
+           return (n.width = Math.max(n.unitW, n.childrenW));
        }
        forest.forEach(computeWidth);
-   
-       // ============================================================
-       // BƯỚC 3: GÁN TOẠ ĐỘ X (đệ quy TỪ TRÊN XUỐNG) — mỗi nhánh nằm gọn
-       // trong băng đã tính, không bao giờ lấn sang băng của nhánh khác.
-       // ============================================================
+
+       // Vị trí x (tính từ mép trái gia đình) của điểm xuất phát đường nối xuống con:
+       // con chung của 1 cặp -> chấm tròn giữa 2 vợ chồng; con riêng -> giữa thẻ cha/mẹ đó
+       function anchorOffset(cards, parentIds) {
+           const hostIdx = cards.indexOf(cards.find((id) => hostOf[id] == null));
+           const idx = parentIds.map((p) => cards.indexOf(p));
+           if (idx.length >= 2 && idx.includes(hostIdx)) {
+               const other = idx.find((i) => i !== hostIdx);
+               return other > hostIdx ? other * CARD_STEP - H_GAP / 2 : (other + 1) * CARD_STEP - H_GAP / 2;
+           }
+           return idx.reduce((s, i) => s + i * CARD_STEP + NODE_W / 2, 0) / idx.length;
+       }
+
        const posX = {};
-       function assignX(node, leftX) {
-           if (node.children.length > 0) {
-               const childrenTotal = node.children.reduce((s, c) => s + c.width, 0) + (node.children.length - 1) * H_GAP;
-               let cursor = leftX + (node.width - childrenTotal) / 2;
-               node.children.forEach((c) => {
+       function assignX(n, leftX) {
+           let unitLeft = leftX + (n.width - n.unitW) / 2;
+           if (n.children.length) {
+               let cursor = leftX + (n.width - n.childrenW) / 2;
+               n.children.forEach((c) => {
                    assignX(c, cursor);
                    cursor += c.width + H_GAP;
                });
-               node.centerX = (node.children[0].centerX + node.children[node.children.length - 1].centerX) / 2;
-           } else {
-               node.centerX = leftX + node.width / 2;
+               // Canh để điểm xuất phát nằm thẳng trên giữa đàn con
+               const first = n.children[0];
+               const last = n.children[n.children.length - 1];
+               const kidsCenter = (posX[first.id] + posX[last.id]) / 2 + NODE_W / 2;
+               const anchor = (anchorOffset(n.cards, first.parentIds) + anchorOffset(n.cards, last.parentIds)) / 2;
+               unitLeft = Math.min(Math.max(kidsCenter - anchor, leftX), leftX + n.width - n.unitW);
            }
-           if (node.unit.type === "couple" && treeDisplayMode === "separate") {
-               const leftEdge = node.centerX - unitWidth(node.unit) / 2;
-               posX[node.unit.ids[0]] = leftEdge;
-               posX[node.unit.ids[1]] = leftEdge + NODE_W + H_GAP;
-           } else {
-               posX[node.unit.ids[0]] = node.centerX - NODE_W / 2;
-               if (node.unit.type === "couple") posX[node.unit.ids[1]] = posX[node.unit.ids[0]];
-           }
+           n.left = unitLeft;
+           n.cards.forEach((id, i) => (posX[id] = unitLeft + i * CARD_STEP));
        }
        let cursorX = 0;
-       forest.forEach((node) => {
-           assignX(node, cursorX);
-           cursorX += node.width + H_GAP * 2; // khoảng cách rộng hơn giữa các cây/nhánh gốc độc lập
+       forest.forEach((n) => {
+           assignX(n, cursorX);
+           cursorX += n.width + H_GAP * 2; // khoảng cách rộng hơn giữa các cây độc lập
        });
-   
+
        const contentWidth = Math.max(0, cursorX - H_GAP * 2);
        const canvasWidth = Math.max(contentWidth + 80, 900);
        const offsetX = (canvasWidth - contentWidth) / 2;
        Object.keys(posX).forEach((id) => (posX[id] += offsetX));
-   
-       const maxGen = persons.filter((p) => visibleIds.has(p.id)).reduce((m, p) => Math.max(m, generation[p.id]), 0);
-       const canvasHeight = (maxGen + 1) * V_GAP + NODE_H_MERGED + 40;
-    const scaledWidth = Math.ceil(canvasWidth * treeScale);
-    const scaledHeight = Math.ceil(canvasHeight * treeScale);
-   
+
+       // Cả gia đình (chủ + vợ/chồng) đứng chung 1 hàng theo đời của người chủ
+       const posY = {};
+       const unitOfCard = {};
+       (function walk(nodes) {
+           nodes.forEach((n) => {
+               n.left += offsetX;
+               n.y = generation[n.id] * V_GAP + NODE_TOP;
+               n.cards.forEach((id) => { posY[id] = n.y; unitOfCard[id] = n; });
+               walk(n.children);
+           });
+       })(forest);
+
+       const maxY = Object.values(posY).reduce((m, y) => Math.max(m, y), 0);
+       const canvasHeight = maxY + NODE_H + 60;
+       const scaledWidth = Math.ceil(canvasWidth * treeScale);
+       const scaledHeight = Math.ceil(canvasHeight * treeScale);
+
        // ============================================================
-       // BƯỚC 4: VẼ SVG (đường nối trước, thẻ người sau)
+       // BƯỚC 5: VẼ SVG (đường nối trước, thẻ người sau)
        // ============================================================
-       function nodeUnitY(unit) { return generation[unit.ids[0]] * V_GAP + NODE_TOP; }
-       function nodeHeight() { return treeDisplayMode === "merged" ? NODE_H_MERGED : NODE_H; }
-       function nodeCenterXOf(unit) {
-           if (treeDisplayMode === "merged" || unit.type === "single") return posX[unit.ids[0]] + NODE_W / 2;
-           return (posX[unit.ids[0]] + NODE_W / 2 + posX[unit.ids[1]] + NODE_W / 2) / 2;
-       }
-   
        let svgDefs = "<defs><filter id=\"node-shadow\" x=\"-10%\" y=\"-20%\" width=\"120%\" height=\"150%\"><feDropShadow dx=\"0\" dy=\"2\" stdDeviation=\"3\" flood-color=\"#2A1F17\" flood-opacity=\"0.12\" /></filter>";
-       persons.filter((p) => visibleIds.has(p.id) && p.avatar_path).forEach((p) => {
+       persons.filter((p) => isVisible(p.id) && p.avatar_path).forEach((p) => {
            svgDefs += `<clipPath id="clip-${p.id}"><circle cx="0" cy="0" r="${NODE_AVATAR_R}" /></clipPath>`;
        });
        svgDefs += "</defs>";
        const svgParts = [`<svg width="${canvasWidth}" height="${canvasHeight}" xmlns="http://www.w3.org/2000/svg">${svgDefs}<style>${TREE_SVG_STYLE}</style>`];
-   
-       function drawConnectors(node) {
-           if (node.unit.type === "couple" && treeDisplayMode === "separate") {
-               const [a, b] = node.unit.ids;
-               const y = generation[a] * V_GAP + NODE_TOP + NODE_H / 2;
-               const x1 = posX[a] + NODE_W - 8;
-               const x2 = posX[b] + 8;
-               if (x2 > x1) {
-                   svgParts.push(`<line class="marriage-line" x1="${x1}" y1="${y}" x2="${x2}" y2="${y}" />`);
-                   svgParts.push(`<circle class="marriage-dot" cx="${(x1 + x2) / 2}" cy="${y}" r="6" />`);
-               }
-           }
-           if (node.children.length > 0) {
-               const parentY = nodeUnitY(node.unit) + nodeHeight();
-               const childY = nodeUnitY(node.children[0].unit);
-               const anchorX = nodeCenterXOf(node.unit);
-               const forkY = parentY + (childY - parentY) * 0.5;
-               if (node.children.length === 1) {
-                   const cx = nodeCenterXOf(node.children[0].unit);
-                   svgParts.push(`<path class="edge-line" d="M ${anchorX} ${parentY} L ${anchorX} ${forkY} L ${cx} ${forkY} L ${cx} ${childY}" />`);
-               } else {
-                   const centers = node.children.map((c) => nodeCenterXOf(c.unit));
-                   const leftX = Math.min(...centers);
-                   const rightX = Math.max(...centers);
-                   svgParts.push(`<path class="edge-line" d="M ${anchorX} ${parentY} L ${anchorX} ${forkY} L ${leftX} ${forkY} L ${rightX} ${forkY}" />`);
-                   centers.forEach((cx) => svgParts.push(`<path class="edge-line" d="M ${cx} ${forkY} L ${cx} ${childY}" />`));
-               }
-               node.children.forEach(drawConnectors);
-           }
+       const centerX = (id) => posX[id] + NODE_W / 2;
+
+       // Điểm xuất phát (x, y) của đường nối từ cha/mẹ xuống con
+       function anchorPoint(n, parentIds) {
+           const x = n.left + anchorOffset(n.cards, parentIds);
+           const isCouple = parentIds.length >= 2 && parentIds.includes(n.id);
+           return { x, y: isCouple ? n.y + NODE_H / 2 : n.y + NODE_H };
+       }
+
+       function drawConnectors(n) {
+           // Đường hôn nhân: người chủ -> từng vợ/chồng
+           (spousesOf[n.id] || []).forEach((s) => {
+               const y = n.y + NODE_H / 2;
+               const right = posX[s] > posX[n.id];
+               const x1 = right ? posX[n.id] + NODE_W - 8 : posX[s] + NODE_W - 8;
+               const x2 = right ? posX[s] + 8 : posX[n.id] + 8;
+               const dotX = right ? posX[s] - H_GAP / 2 : posX[s] + NODE_W + H_GAP / 2;
+               const divorced = marriageStatus[pairKey(n.id, s)] === "divorced";
+               svgParts.push(`<line class="marriage-line${divorced ? " divorced" : ""}" x1="${x1}" y1="${y}" x2="${x2}" y2="${y}" />`);
+               svgParts.push(`<circle class="marriage-dot" cx="${dotX}" cy="${y}" r="6" />`);
+           });
+
+           // Đường cha/mẹ -> con, mỗi nhóm cha/mẹ (con chung / con riêng) 1 nhánh riêng
+           const groups = [];
+           n.children.forEach((c) => {
+               const key = [...c.parentIds].sort().join(",");
+               let g = groups.find((x) => x.key === key);
+               if (!g) groups.push((g = { key, parentIds: c.parentIds, kids: [] }));
+               g.kids.push(c);
+           });
+           groups.forEach((g, gi) => {
+               const a = anchorPoint(n, g.parentIds);
+               const childTop = Math.min(...g.kids.map((c) => c.y));
+               const parentBottom = n.y + NODE_H;
+               // Nhiều nhóm con -> mỗi nhóm 1 độ cao rẽ nhánh khác nhau để không chồng lên nhau
+               const forkY = parentBottom + (childTop - parentBottom) / 2 + (gi - (groups.length - 1) / 2) * 12;
+               const xs = g.kids.map((c) => centerX(c.id));
+               const minX = Math.min(a.x, ...xs);
+               const maxX = Math.max(a.x, ...xs);
+               svgParts.push(`<path class="edge-line" d="M ${a.x} ${a.y} L ${a.x} ${forkY} M ${minX} ${forkY} L ${maxX} ${forkY}" />`);
+               g.kids.forEach((c) => svgParts.push(`<path class="edge-line" d="M ${centerX(c.id)} ${forkY} L ${centerX(c.id)} ${c.y}" />`));
+           });
+           n.children.forEach(drawConnectors);
        }
        forest.forEach(drawConnectors);
-   
+
+       // Dâu/rể có cha mẹ ruột trong gia phả -> nét đứt từ cha mẹ ruột tới họ
+       Object.keys(hostOf).map(Number).forEach((guestId) => {
+           const ps = visibleParents(guestId).filter((p) => unitOfCard[p]);
+           if (!ps.length) return;
+           const n = unitOfCard[ps[0]];
+           const a = anchorPoint(n, ps.filter((p) => n.cards.includes(p)));
+           const gx = centerX(guestId);
+           const gy = posY[guestId];
+           const startY = n.y + NODE_H;
+           const midY = (startY + gy) / 2;
+           svgParts.push(`<path class="cross-line" d="M ${a.x} ${a.y} L ${a.x} ${startY + 12} C ${a.x} ${midY} ${gx} ${midY} ${gx} ${gy}" />`);
+       });
+
+       // Hôn nhân không xếp cạnh nhau được (VD: 1 người tái hôn với 2 người đều là người trong họ)
+       extraMarriages.forEach(([a, b]) => {
+           if (posX[a] == null || posX[b] == null) return;
+           const ax = centerX(a);
+           const bx = centerX(b);
+           const lift = 34;
+           svgParts.push(`<path class="marriage-line extra" d="M ${ax} ${posY[a]} C ${ax} ${Math.min(posY[a], posY[b]) - lift} ${bx} ${Math.min(posY[a], posY[b]) - lift} ${bx} ${posY[b]}" />`);
+       });
+
        function drawAvatar(p, cx, cy, r) {
            const genderColor = treeGenderColor(p.gender);
            if (p.avatar_path) {
@@ -1413,57 +1551,29 @@ document.getElementById("btn-tree-export-pdf")?.addEventListener("click", () => 
            }
            return `
                <circle cx="${cx}" cy="${cy}" r="${r + 2}" fill="#FFFCF7" stroke="${genderColor}" stroke-opacity="0.35" />
-                   <circle cx="${cx}" cy="${cy}" r="${r}" fill="${genderColor}" />
+               <circle cx="${cx}" cy="${cy}" r="${r}" fill="${genderColor}" />
                <text class="node-avatar-letter" x="${cx}" y="${cy}" text-anchor="middle" font-size="${Math.round(r * 0.75)}">${escapeHtml(treeAvatarInitial(p.full_name))}</text>`;
        }
-   
-       function drawNode(node) {
-           const unit = node.unit;
-           const y = nodeUnitY(unit);
-   
-           if (unit.type === "single" || treeDisplayMode === "separate") {
-               unit.ids.forEach((pid) => {
-                   const p = byId[pid];
-                   const x = posX[pid];
-                   const alive = p.is_alive === 1 || p.is_alive === true;
-                   svgParts.push(`
-                       <g class="tree-node-card${alive ? "" : " deceased"}" onclick="openDetailFromTree(${p.id})">
-                           <rect class="card-bg" x="${x}" y="${y}" width="${NODE_W}" height="${NODE_H}" rx="10" />
-                           <rect x="${x + 5}" y="${y + 14}" width="3" height="${NODE_H - 28}" rx="1.5" fill="${treeGenderColor(p.gender)}" />
-                           ${drawAvatar(p, x + 34, y + NODE_H / 2, NODE_AVATAR_R)}
-                           <text class="node-name" x="${x + NODE_TEXT_X}" y="${y + 27}">${escapeHtml(truncate(p.full_name, 18))}</text>
-                           <text class="node-years" x="${x + NODE_TEXT_X}" y="${y + 45}">${formatTreeYears(p)}</text>
-                           <rect x="${x + NODE_W - 58}" y="${y + NODE_H - 22}" width="50" height="16" rx="8" fill="rgba(184,137,59,0.16)" />
-                           <text class="gen-label" x="${x + NODE_W - 33}" y="${y + NODE_H - 10}">Đời ${generation[pid]}</text>
-                       </g>
-                   `);
-               });
-           } else {
-               // Chế độ gộp: 1 thẻ chung cho cả cặp — ids[0] là người huyết thống (hiển thị chính)
-               const [primaryId, spouseId] = unit.ids;
-               const primary = byId[primaryId];
-               const spouse = byId[spouseId];
-               const x = posX[primaryId];
-               const h = NODE_H_MERGED;
-               const alive = primary.is_alive === 1 || primary.is_alive === true;
-               svgParts.push(`
-                   <g class="tree-node-card${alive ? "" : " deceased"}" onclick="openDetailFromTree(${primary.id})">
-                       <rect class="card-bg" x="${x}" y="${y}" width="${NODE_W}" height="${h}" rx="10" />
-                       <rect x="${x + 5}" y="${y + 14}" width="3" height="${h - 28}" rx="1.5" fill="${treeGenderColor(primary.gender)}" />
-                       ${drawAvatar(primary, x + 28, y + 27, 15)}
-                       ${drawAvatar(spouse, x + 28, y + 56, 12)}
-                       <text class="node-name" x="${x + 54}" y="${y + 23}">${escapeHtml(truncate(primary.full_name, 16))}</text>
-                       <text class="node-spouse-name" x="${x + 54}" y="${y + 40}">&amp; ${escapeHtml(truncate(spouse.full_name, 16))}</text>
-                       <text class="node-years" x="${x + 54}" y="${y + 58}">${formatTreeYears(primary)}</text>
-                       <rect x="${x + NODE_W - 58}" y="${y + h - 22}" width="50" height="16" rx="8" fill="rgba(184,137,59,0.16)" />
-                       <text class="gen-label" x="${x + NODE_W - 33}" y="${y + h - 10}">Đời ${generation[primaryId]}</text>
-                   </g>
-               `);
-           }
-           node.children.forEach(drawNode);
-       }
-       forest.forEach(drawNode);
-   
+
+       Object.keys(posX).map(Number).forEach((pid) => {
+           const p = byId[pid];
+           const x = posX[pid];
+           const y = posY[pid];
+           const alive = p.is_alive === 1 || p.is_alive === true;
+           svgParts.push(`
+               <g class="tree-node-card${alive ? "" : " deceased"}" onclick="openDetailFromTree(${p.id})">
+                   <title>${escapeHtml(p.full_name)}</title>
+                   <rect class="card-bg" x="${x}" y="${y}" width="${NODE_W}" height="${NODE_H}" rx="10" />
+                   <rect x="${x + 5}" y="${y + 14}" width="3" height="${NODE_H - 28}" rx="1.5" fill="${treeGenderColor(p.gender)}" />
+                   ${drawAvatar(p, x + 34, y + NODE_H / 2, NODE_AVATAR_R)}
+                   <text class="node-name" x="${x + NODE_TEXT_X}" y="${y + 27}">${escapeHtml(truncate(p.full_name, 18))}</text>
+                   <text class="node-years" x="${x + NODE_TEXT_X}" y="${y + 45}">${formatTreeYears(p)}</text>
+                   <rect x="${x + NODE_W - 58}" y="${y + NODE_H - 22}" width="50" height="16" rx="8" fill="rgba(184,137,59,0.16)" />
+                   <text class="gen-label" x="${x + NODE_W - 33}" y="${y + NODE_H - 10}">Đời ${generation[pid]}</text>
+               </g>
+           `);
+       });
+
        svgParts.push("</svg>");
        const svg = svgParts.join("");
        lastTreeExport = { svg, canvasWidth, canvasHeight };

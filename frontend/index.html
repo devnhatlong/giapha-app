@@ -40,6 +40,8 @@
         <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6" /></symbol>
         <symbol id="i-pin" viewBox="0 0 24 24"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" /><circle cx="12" cy="10" r="3" /></symbol>
         <symbol id="i-briefcase" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2" /><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" /></symbol>
+        <symbol id="i-gift" viewBox="0 0 24 24"><rect x="3" y="8" width="18" height="4" rx="1" /><path d="M12 8v13M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7" /><path d="M7.5 8a2.5 2.5 0 0 1 0-5C10 3 12 8 12 8s2-5 4.5-5a2.5 2.5 0 0 1 0 5" /></symbol>
+        <symbol id="i-leaf" viewBox="0 0 24 24"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z" /><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12" /></symbol>
         <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20" /></symbol>
     </svg>
 
@@ -212,6 +214,7 @@
                     <span><span class="tree-legend-dot female"></span> Nữ</span>
                     <span><span class="tree-legend-dot deceased"></span> Đã mất (mờ nhẹ)</span>
                     <span><span class="tree-legend-line"></span> Vợ chồng</span>
+                    <span><span class="tree-legend-dash"></span> Nối về cha mẹ ruột (dâu/rể)</span>
                 </div>
             </section>
 
@@ -229,8 +232,12 @@
                 </div>
                 <div class="event-filter-tabs">
                     <button type="button" class="event-filter-btn active" data-filter="all">Tất cả</button>
-                    <button type="button" class="event-filter-btn" data-filter="birthday">Sinh nhật</button>
                     <button type="button" class="event-filter-btn" data-filter="death_anniversary">Ngày giỗ</button>
+                    <button type="button" class="event-filter-btn" data-filter="birthday">Sinh nhật</button>
+                    <button type="button" class="event-filter-btn" data-filter="wedding">Ngày cưới</button>
+                    <button type="button" class="event-filter-btn" data-filter="longevity">Mừng thọ</button>
+                    <button type="button" class="event-filter-btn" data-filter="tomb_visit">Tảo mộ</button>
+                    <button type="button" class="event-filter-btn" data-filter="clan_meeting">Giỗ tổ / Họp họ</button>
                     <button type="button" class="event-filter-btn" data-filter="custom">Khác</button>
                 </div>
                 <div id="events-list"></div>
@@ -345,8 +352,8 @@
     <div class="modal-overlay" id="event-modal">
         <div class="modal">
             <div class="modal-header">
-                <h3 class="modal-title">Thêm sự kiện</h3>
-                <p class="modal-subtitle">Ngày giỗ, sinh nhật hoặc sự kiện quan trọng của dòng họ</p>
+                <h3 class="modal-title" id="event-modal-title">Thêm sự kiện</h3>
+                <p class="modal-subtitle" id="event-modal-subtitle">Ngày giỗ, sinh nhật hoặc sự kiện quan trọng của dòng họ</p>
             </div>
             <form id="event-form">
                 <div class="form-row">
@@ -361,7 +368,11 @@
                         <select id="e-event_type" class="search-select">
                             <option value="death_anniversary">Ngày giỗ</option>
                             <option value="birthday">Sinh nhật</option>
-                            <option value="custom">Khác</option>
+                            <option value="wedding">Ngày cưới</option>
+                            <option value="longevity">Mừng thọ</option>
+                            <option value="tomb_visit">Tảo mộ / Thanh minh</option>
+                            <option value="clan_meeting">Giỗ tổ / Họp họ</option>
+                            <option value="custom">Sự kiện khác</option>
                         </select>
                     </div>
                     <div class="form-group">
