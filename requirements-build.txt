@@ -1,0 +1,5 @@
+# Chỉ cần khi build bản cài đặt (không cần để chạy app)
+nuitka
+ordered-set
+zstandard
+pillow

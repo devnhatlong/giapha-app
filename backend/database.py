@@ -13,14 +13,25 @@ Vì sao dùng SQLite thay vì MySQL/XAMPP:
 
 import sqlite3
 import os
+import sys
 
 # Đường dẫn tới thư mục chứa file này (backend/)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Thư mục gốc của toàn bộ project (lùi lên 1 cấp từ backend/)
 PROJECT_ROOT = os.path.dirname(BASE_DIR)
 
+# Bản đã đóng gói (Nuitka / PyInstaller) được cài vào Program Files -> không ghi được.
+# Khi đó dữ liệu người dùng để ở %LOCALAPPDATA%\GiaPha (gỡ / cập nhật app không mất dữ liệu).
+# Khi chạy bằng `python main.py` thì vẫn để ngay trong thư mục project như cũ.
+IS_PACKAGED = getattr(sys, "frozen", False) or "__compiled__" in globals()
+if IS_PACKAGED:
+    USER_DATA_ROOT = os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "GiaPha")
+else:
+    USER_DATA_ROOT = PROJECT_ROOT
+
 # Nơi lưu file database thật sự
-DATA_DIR = os.path.join(PROJECT_ROOT, "data")
+DATA_DIR = os.path.join(USER_DATA_ROOT, "data")
+UPLOAD_DIR = os.path.join(USER_DATA_ROOT, "uploads")
 DB_PATH = os.path.join(DATA_DIR, "giapha.db")
 SCHEMA_PATH = os.path.join(BASE_DIR, "schema.sql")
 

@@ -27,17 +27,18 @@ import sys
 import uvicorn
 import webview
 
-from backend import database
+from backend import backup, database
 from backend.api import app
 from fastapi.staticfiles import StaticFiles
 
 FRONTEND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frontend")
-UPLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads")
+UPLOADS_DIR = database.UPLOAD_DIR
 ICON_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon")
 os.makedirs(ICON_DIR, exist_ok=True)
 
 HOST = "127.0.0.1"
 PORT = 8756  # Cổng nội bộ, ít khi trùng với phần mềm khác
+BACKUP_FILE_TYPES = ("File sao lưu Gia Phả (*.zip)",)
 
 
 def resolve_app_icon():
@@ -87,6 +88,9 @@ def enable_windows_app_icon(icon_path):
 
 def run_server():
     """Chạy FastAPI server trong nền, không hiện log rườm rà cho người dùng thường."""
+    # Bản đóng gói không có cửa sổ console -> stdout/stderr = None, uvicorn ghi log sẽ lỗi.
+    if sys.stdout is None or sys.stderr is None:
+        sys.stdout = sys.stderr = open(os.devnull, "w")
     uvicorn.run(app, host=HOST, port=PORT, log_level="warning")
 
 
@@ -114,6 +118,39 @@ class JSBridge:
             return {"ok": True, "path": path}
         except Exception as e:
             return {"ok": False, "error": str(e)}
+
+    def backup_data(self):
+        """Sao lưu toàn bộ dữ liệu ra 1 file .zip do người dùng chọn chỗ lưu."""
+        window = webview.windows[0]
+        result = window.create_file_dialog(
+            webview.SAVE_DIALOG,
+            save_filename=backup.default_filename(),
+            file_types=BACKUP_FILE_TYPES,
+        )
+        if not result:
+            return {"ok": False, "canceled": True}
+        path = result[0] if isinstance(result, (list, tuple)) else result
+        if not path.lower().endswith(".zip"):
+            path += ".zip"
+        try:
+            info = backup.create_backup(path)
+            return {"ok": True, "path": path, **info}
+        except Exception as e:
+            return {"ok": False, "error": f"Không thể sao lưu: {e}"}
+
+    def restore_data(self):
+        """Chọn file .zip sao lưu và thay toàn bộ dữ liệu hiện tại bằng dữ liệu trong file."""
+        window = webview.windows[0]
+        result = window.create_file_dialog(webview.OPEN_DIALOG, file_types=BACKUP_FILE_TYPES)
+        if not result:
+            return {"ok": False, "canceled": True}
+        path = result[0] if isinstance(result, (list, tuple)) else result
+        try:
+            return {"ok": True, **backup.restore_backup(path)}
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}
+        except Exception as e:
+            return {"ok": False, "error": f"Không thể khôi phục: {e}"}
 
 
 def main():

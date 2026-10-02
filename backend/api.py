@@ -10,13 +10,15 @@ Giao diện (frontend) sẽ gọi tới các đường dẫn này để lấy/g�
 
 from datetime import date
 
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, UploadFile, File, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional
 import os
 
 from . import database
+from . import license as app_license
 
 app = FastAPI(title="API Gia Phả")
 
@@ -28,7 +30,47 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-UPLOAD_DIR = os.path.join(database.PROJECT_ROOT, "uploads")
+
+# ============================================================
+# BẢN QUYỀN: chưa kích hoạt -> chặn toàn bộ API dữ liệu (trừ /api/license/*).
+# Chặn ở backend để không thể "lách" bằng cách ẩn màn hình kích hoạt ở giao diện.
+# ============================================================
+@app.middleware("http")
+async def require_license(request: Request, call_next):
+    path = request.url.path
+    needs_license = (path.startswith("/api/") and not path.startswith("/api/license")) or path.startswith("/uploads/")
+    if needs_license and not app_license.is_activated():
+        return JSONResponse(status_code=403, content={"detail": "Phần mềm chưa được kích hoạt", "license_required": True})
+    return await call_next(request)
+
+
+class LicenseIn(BaseModel):
+    license_key: str
+    # Cho phép thay bằng key có hạn NGẮN hơn key đang dùng (người dùng đã xác nhận)
+    allow_shorter: bool = False
+
+
+@app.get("/api/license/status")
+def license_status():
+    return app_license.get_status()
+
+
+@app.post("/api/license/activate")
+def license_activate(body: LicenseIn):
+    ok, message, expiry = app_license.verify_license_key(body.license_key)
+    if not ok:
+        raise HTTPException(status_code=400, detail=message)
+    # Chống "hạ cấp" nhầm: dán lại key dùng thử cũ đè lên key dài hạn đang dùng
+    current = app_license.get_status()
+    if current["activated"] and not body.allow_shorter and expiry < current["expiry_date"]:
+        fmt = lambda d: date.fromisoformat(d).strftime("%d/%m/%Y")
+        raise HTTPException(status_code=409, detail=(
+            f"License Key mới chỉ dùng đến {fmt(expiry)}, ngắn hơn bản quyền hiện tại "
+            f"(đến {fmt(current['expiry_date'])})."))
+    app_license.save_license(body.license_key)
+    return app_license.get_status()
+
+UPLOAD_DIR = database.UPLOAD_DIR
 PERSONS_UPLOAD_DIR = os.path.join(UPLOAD_DIR, "persons")
 FAMILY_UPLOAD_DIR = os.path.join(UPLOAD_DIR, "family")
 os.makedirs(PERSONS_UPLOAD_DIR, exist_ok=True)

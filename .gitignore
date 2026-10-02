@@ -40,3 +40,10 @@ dist/
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# Log build
+build.log
+nuitka-crash-report.xml
+
+# Bản sao lưu tự động trước khi khôi phục (khi chạy dev)
+backups/

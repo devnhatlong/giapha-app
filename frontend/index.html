@@ -42,6 +42,10 @@
         <symbol id="i-briefcase" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2" /><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" /></symbol>
         <symbol id="i-gift" viewBox="0 0 24 24"><rect x="3" y="8" width="18" height="4" rx="1" /><path d="M12 8v13M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7" /><path d="M7.5 8a2.5 2.5 0 0 1 0-5C10 3 12 8 12 8s2-5 4.5-5a2.5 2.5 0 0 1 0 5" /></symbol>
         <symbol id="i-leaf" viewBox="0 0 24 24"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z" /><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12" /></symbol>
+        <symbol id="i-key" viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="5.5" /><path d="m21 2-9.6 9.6M15.5 7.5l3 3L22 7l-3-3" /></symbol>
+        <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="14" height="14" rx="2" /><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" /></symbol>
+        <symbol id="i-upload" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" /></symbol>
+        <symbol id="i-archive" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="5" rx="1" /><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8M10 12h4" /></symbol>
         <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20" /></symbol>
     </svg>
 
@@ -72,11 +76,18 @@
                 <button class="nav-item" data-tab="events" title="Ngày giỗ / Sự kiện">
                     <svg class="icon nav-icon"><use href="#i-calendar" /></svg><span class="nav-text">Ngày giỗ / Sự kiện</span>
                 </button>
+                <button class="nav-item" data-tab="backup" title="Sao lưu dữ liệu">
+                    <svg class="icon nav-icon"><use href="#i-archive" /></svg><span class="nav-text">Sao lưu dữ liệu</span>
+                </button>
+                <button class="nav-item" data-tab="license" title="Bản quyền">
+                    <svg class="icon nav-icon"><use href="#i-key" /></svg><span class="nav-text">Bản quyền</span>
+                </button>
             </nav>
             <div class="sidebar-footer">
                 <div class="sidebar-footer-app">Gia Phả v1.0</div>
+                <button type="button" class="sidebar-footer-license" id="sidebar-license" title="Xem / gia hạn bản quyền"></button>
                 <div class="sidebar-footer-copyright">© 2026 Raito Nguyen</div>
-                <div class="sidebar-footer-contact">Zalo: 0365 756 687</div>
+                <div class="sidebar-footer-contact">Zalo: <a href="https://zalo.me/0365756687" target="_blank" rel="noopener" title="Nhắn Zalo">0365 756 687</a></div>
                 <div class="sidebar-footer-contact">Email: dev.nhatlong@gmail.com</div>
             </div>
         </aside>
@@ -241,6 +252,86 @@
                     <button type="button" class="event-filter-btn" data-filter="custom">Khác</button>
                 </div>
                 <div id="events-list"></div>
+            </section>
+
+            <!-- ---------- TAB: BẢN QUYỀN ---------- -->
+            <section id="tab-license" class="tab-content" style="display:none">
+                <div class="page-header">
+                    <div>
+                        <div class="page-eyebrow">Cài đặt</div>
+                        <h1 class="page-title">Bản quyền phần mềm</h1>
+                        <div class="page-subtitle">Xem thời hạn sử dụng và gia hạn bằng License Key mới</div>
+                    </div>
+                </div>
+                <div class="backup-grid">
+                    <div class="card">
+                        <h3 class="card-title"><svg class="icon"><use href="#i-key" /></svg> Thông tin bản quyền</h3>
+                        <dl class="license-summary" id="license-summary"><dd>Đang tải...</dd></dl>
+                        <div class="form-group license-code-group">
+                            <label for="license-tab-code">Code</label>
+                            <div class="input-with-btn">
+                                <input type="text" id="license-tab-code" class="license-mono" readonly />
+                                <button type="button" class="btn-secondary btn" id="btn-copy-license-tab-code">
+                                    <svg class="icon"><use href="#i-copy" /></svg> Copy
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <h3 class="card-title"><svg class="icon"><use href="#i-reset" /></svg> Gia hạn / nâng cấp</h3>
+                        <ol class="backup-steps">
+                            <li>Gửi <strong>Code</strong> bên cạnh cho nhà cung cấp để mua thêm thời hạn.</li>
+                            <li>Nhận <strong>License Key</strong> mới, dán vào ô dưới.</li>
+                            <li>Bấm <strong>Cập nhật bản quyền</strong>. Dữ liệu gia phả giữ nguyên.</li>
+                        </ol>
+                        <div class="form-group license-update-group">
+                            <label for="license-tab-key">License Key mới</label>
+                            <textarea id="license-tab-key" class="license-mono" rows="3"
+                                placeholder="Dán License Key mới vào đây..." spellcheck="false"></textarea>
+                        </div>
+                        <div class="license-error" id="license-tab-error" hidden></div>
+                        <button type="button" class="btn" id="btn-update-license">
+                            <svg class="icon"><use href="#i-key" /></svg> Cập nhật bản quyền
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ---------- TAB: SAO LƯU / KHÔI PHỤC ---------- -->
+            <section id="tab-backup" class="tab-content" style="display:none">
+                <div class="page-header">
+                    <div>
+                        <div class="page-eyebrow">Dữ liệu</div>
+                        <h1 class="page-title">Sao lưu &amp; chuyển máy</h1>
+                        <div class="page-subtitle">Gói toàn bộ gia phả vào 1 file để cất giữ hoặc chuyển sang máy khác</div>
+                    </div>
+                </div>
+                <div class="backup-grid">
+                    <div class="card">
+                        <h3 class="card-title"><svg class="icon"><use href="#i-download" /></svg> Sao lưu dữ liệu</h3>
+                        <p class="backup-text">Lưu toàn bộ thành viên, quan hệ, sự kiện và ảnh vào <strong>1 file .zip</strong>.
+                            Nên sao lưu định kỳ và cất file ở USB hoặc Google Drive.</p>
+                        <button type="button" class="btn" id="btn-backup-data">
+                            <svg class="icon"><use href="#i-download" /></svg> Sao lưu ra file
+                        </button>
+                    </div>
+                    <div class="card">
+                        <h3 class="card-title"><svg class="icon"><use href="#i-upload" /></svg> Khôi phục dữ liệu</h3>
+                        <p class="backup-text">Chọn file sao lưu để nạp dữ liệu vào máy này.
+                            <strong>Dữ liệu hiện tại sẽ được thay thế</strong> (phần mềm tự giữ lại 1 bản sao lưu trước khi thay).</p>
+                        <button type="button" class="btn-secondary btn" id="btn-restore-data">
+                            <svg class="icon"><use href="#i-upload" /></svg> Chọn file sao lưu...
+                        </button>
+                    </div>
+                </div>
+                <div class="card">
+                    <h3 class="card-title"><svg class="icon"><use href="#i-book" /></svg> Chuyển gia phả sang máy mới</h3>
+                    <ol class="backup-steps">
+                        <li>Ở máy cũ: bấm <strong>Sao lưu ra file</strong>, chép file .zip sang máy mới (USB, Zalo, email...).</li>
+                        <li>Ở máy mới: cài phần mềm Gia Phả và kích hoạt bản quyền (mỗi máy cần License Key riêng).</li>
+                        <li>Vào mục <strong>Sao lưu dữ liệu</strong>, bấm <strong>Chọn file sao lưu...</strong> và chọn file .zip vừa chép.</li>
+                    </ol>
+                </div>
             </section>
 
         </main>
@@ -432,6 +523,39 @@
                     <button type="submit" class="btn">Liên kết</button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- ===================== MÀN HÌNH KÍCH HOẠT BẢN QUYỀN ===================== -->
+    <div class="license-overlay" id="license-overlay" hidden>
+        <div class="license-box">
+            <div class="license-seal">GP</div>
+            <h2 class="license-title">Kích hoạt phần mềm Gia Phả</h2>
+            <p class="license-subtitle" id="license-reason">Phần mềm chưa được kích hoạt.</p>
+
+            <ol class="license-steps">
+                <li>Gửi <strong>Code</strong> bên dưới cho nhà cung cấp phần mềm.</li>
+                <li>Nhận lại <strong>License Key</strong> và dán vào ô bên dưới.</li>
+                <li>Bấm <strong>Kích hoạt</strong>.</li>
+            </ol>
+
+            <div class="form-group">
+                <label for="license-machine-id">Code</label>
+                <div class="input-with-btn">
+                    <input type="text" id="license-machine-id" readonly />
+                    <button type="button" class="btn-secondary btn" id="btn-copy-machine-id">
+                        <svg class="icon"><use href="#i-copy" /></svg> Copy
+                    </button>
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="license-key-input">License Key</label>
+                <textarea id="license-key-input" rows="3" placeholder="Dán License Key vào đây..." spellcheck="false"></textarea>
+            </div>
+            <div class="license-error" id="license-error" hidden></div>
+            <button type="button" class="btn btn-block" id="btn-activate-license">
+                <svg class="icon"><use href="#i-key" /></svg> Kích hoạt
+            </button>
         </div>
     </div>
 

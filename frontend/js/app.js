@@ -46,7 +46,9 @@
        });
        if (!res.ok) {
            const err = await res.json().catch(() => ({}));
-           throw new Error(err.detail || "Có lỗi xảy ra");
+           const error = new Error(err.detail || "Có lỗi xảy ra");
+           error.status = res.status;
+           throw error;
        }
        return res.json();
    }
@@ -232,6 +234,7 @@
        if (tabName === "members") loadMembers();
        if (tabName === "tree") loadTree();
        if (tabName === "events") loadEvents();
+       if (tabName === "license") loadLicenseTab();
    }
    
    document.querySelectorAll(".nav-item[data-tab]").forEach(btn => {
@@ -1602,6 +1605,227 @@ document.getElementById("btn-tree-export-pdf")?.addEventListener("click", () => 
    }
    
    // ============================================================
+   // SAO LƯU / KHÔI PHỤC: gói toàn bộ dữ liệu vào 1 file .zip để chuyển máy.
+   // Hộp thoại chọn file + đọc/ghi file làm ở Python (main.py -> JSBridge),
+   // nên file lớn nhiều ảnh cũng không phải truyền qua JS.
+   // ============================================================
+   function desktopApi(method) {
+       const fn = window.pywebview?.api?.[method];
+       if (!fn) showToast("Chức năng này chỉ dùng được trong cửa sổ phần mềm Gia Phả.", "error");
+       return fn;
+   }
+
+   async function runWithButton(btn, task) {
+       btn.disabled = true;
+       try { return await task(); } finally { btn.disabled = false; }
+   }
+
+   document.getElementById("btn-backup-data").addEventListener("click", async (e) => {
+       const backupData = desktopApi("backup_data");
+       if (!backupData) return;
+       const result = await runWithButton(e.currentTarget, () => backupData());
+       if (result?.ok) {
+           showToast(`Đã sao lưu ${result.members} thành viên, ${result.files} ảnh/tệp vào: ${result.path}`, "success");
+       } else if (!result?.canceled) {
+           showToast(result?.error || "Không thể sao lưu.", "error");
+       }
+   });
+
+   document.getElementById("btn-restore-data").addEventListener("click", async (e) => {
+       const btn = e.currentTarget;
+       const restoreData = desktopApi("restore_data");
+       if (!restoreData) return;
+       const ok = await showConfirm({
+           title: "Khôi phục dữ liệu",
+           message: "Toàn bộ dữ liệu gia phả trên máy này sẽ được THAY THẾ bằng dữ liệu trong file sao lưu. "
+               + "Phần mềm sẽ tự lưu lại 1 bản dữ liệu hiện tại trước khi thay. Tiếp tục?",
+           confirmText: "Chọn file & khôi phục",
+           danger: true,
+       });
+       if (!ok) return;
+       const result = await runWithButton(btn, () => restoreData());
+       if (result?.ok) {
+           showToast(`Đã khôi phục ${result.members} thành viên. Đang tải lại...`, "success");
+           // Tải lại toàn bộ giao diện để mọi tab, ảnh đại diện dùng dữ liệu mới
+           setTimeout(() => location.reload(), 1200);
+       } else if (!result?.canceled) {
+           showToast(result?.error || "Không thể khôi phục.", "error");
+       }
+   });
+
+   // ============================================================
+   // BẢN QUYỀN: chưa kích hoạt -> hiện màn hình nhập License Key và
+   // chỉ cho vào app khi kích hoạt thành công (backend cũng chặn API).
+   // ============================================================
+   const LICENSE_WARN_DAYS = 7;  // Còn ≤ 7 ngày -> cảnh báo sắp hết hạn
+
+   function describeDaysLeft(status) {
+       if (status.permanent) return "Vĩnh viễn";
+       if (status.days_left === 0) return "Hết hạn cuối ngày hôm nay";
+       return `Còn ${status.days_left} ngày`;
+   }
+
+   function updateSidebarLicense(status) {
+       const el = document.getElementById("sidebar-license");
+       el.classList.remove("is-warning");
+       if (!status?.activated) { el.textContent = ""; return; }
+       if (status.permanent) {
+           el.textContent = "Bản quyền vĩnh viễn";
+       } else if (status.days_left <= LICENSE_WARN_DAYS) {
+           el.textContent = `Bản quyền: ${describeDaysLeft(status).toLowerCase()} — gia hạn`;
+           el.classList.add("is-warning");
+       } else {
+           el.textContent = `Bản quyền đến ${formatDateVN(status.expiry_date)}`;
+       }
+   }
+
+   document.getElementById("sidebar-license").addEventListener("click", () => showTab("license"));
+
+   // ---------- Tab Bản quyền: xem thời hạn + nhập License Key mới để gia hạn ----------
+   function renderLicenseSummary(status) {
+       let badge;
+       if (!status.activated) badge = `<span class="license-badge bad">Chưa kích hoạt</span>`;
+       else if (!status.permanent && status.days_left <= LICENSE_WARN_DAYS) badge = `<span class="license-badge warn">Sắp hết hạn</span>`;
+       else badge = `<span class="license-badge ok">Đang hoạt động</span>`;
+
+       const expiry = status.permanent ? "Vĩnh viễn"
+           : status.expiry_date ? formatDateVN(status.expiry_date) : "—";
+       const days = !status.activated ? "—"
+           : status.permanent ? `<span class="license-days">∞</span>`
+           : status.days_left === 0 ? `<span class="license-days">0 <small>ngày (hết hạn cuối hôm nay)</small></span>`
+           : `<span class="license-days">${status.days_left} <small>ngày</small></span>`;
+
+       document.getElementById("license-summary").innerHTML = `
+           <dt>Trạng thái</dt><dd>${badge}</dd>
+           <dt>Hạn sử dụng</dt><dd>${expiry}</dd>
+           <dt>Còn lại</dt><dd>${days}</dd>`;
+       document.getElementById("license-tab-code").value = status.machine_id;
+   }
+
+   async function loadLicenseTab() {
+       const status = await apiGet("/license/status");
+       renderLicenseSummary(status);
+       updateSidebarLicense(status);
+   }
+
+   document.getElementById("btn-copy-license-tab-code").addEventListener("click", async () => {
+       const input = document.getElementById("license-tab-code");
+       await copyText(input.value, input);
+       showToast("Đã copy Code", "success");
+   });
+
+   async function updateLicense() {
+       const keyInput = document.getElementById("license-tab-key");
+       const errorEl = document.getElementById("license-tab-error");
+       const btn = document.getElementById("btn-update-license");
+       const key = keyInput.value.trim();
+       errorEl.hidden = true;
+       if (!key) {
+           errorEl.textContent = "Vui lòng dán License Key mới.";
+           errorEl.hidden = false;
+           keyInput.focus();
+           return;
+       }
+
+       const send = (allowShorter) =>
+           apiSend("/license/activate", "POST", { license_key: key, allow_shorter: allowShorter });
+       btn.disabled = true;
+       try {
+           let result;
+           try {
+               result = await send(false);
+           } catch (err) {
+               // 409: key mới có hạn ngắn hơn key đang dùng -> hỏi lại trước khi thay
+               if (err.status !== 409) throw err;
+               const ok = await showConfirm({
+                   title: "License Key có hạn ngắn hơn",
+                   message: `${err.message} Bạn vẫn muốn thay bằng key mới?`,
+                   confirmText: "Vẫn thay",
+                   danger: true,
+               });
+               if (!ok) return;
+               result = await send(true);
+           }
+           keyInput.value = "";
+           renderLicenseSummary(result);
+           updateSidebarLicense(result);
+           showToast(`Đã cập nhật bản quyền: ${result.permanent ? "vĩnh viễn" : "đến " + formatDateVN(result.expiry_date)}`, "success");
+       } catch (err) {
+           errorEl.textContent = err.message;
+           errorEl.hidden = false;
+       } finally {
+           btn.disabled = false;
+       }
+   }
+
+   document.getElementById("btn-update-license").addEventListener("click", updateLicense);
+   document.getElementById("license-tab-key").addEventListener("keydown", (e) => {
+       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); updateLicense(); }
+   });
+
+   async function copyText(text, inputEl) {
+       try {
+           await navigator.clipboard.writeText(text);
+       } catch {
+           // Dự phòng khi clipboard API bị chặn trong cửa sổ desktop
+           inputEl.select();
+           document.execCommand("copy");
+       }
+   }
+
+   async function ensureLicense() {
+       const status = await apiGet("/license/status");
+       if (status.activated) {
+           updateSidebarLicense(status);
+           return status;
+       }
+
+       const overlay = document.getElementById("license-overlay");
+       const machineInput = document.getElementById("license-machine-id");
+       const keyInput = document.getElementById("license-key-input");
+       const errorEl = document.getElementById("license-error");
+       const activateBtn = document.getElementById("btn-activate-license");
+       machineInput.value = status.machine_id;
+       document.getElementById("license-reason").textContent = status.message;
+       overlay.hidden = false;
+       keyInput.focus();
+
+       document.getElementById("btn-copy-machine-id").onclick = async () => {
+           await copyText(status.machine_id, machineInput);
+           showToast("Đã copy Code", "success");
+       };
+
+       return new Promise((resolve) => {
+           const activate = async () => {
+               const key = keyInput.value.trim();
+               errorEl.hidden = true;
+               if (!key) {
+                   errorEl.textContent = "Vui lòng nhập License Key.";
+                   errorEl.hidden = false;
+                   return;
+               }
+               activateBtn.disabled = true;
+               try {
+                   const result = await apiSend("/license/activate", "POST", { license_key: key });
+                   overlay.hidden = true;
+                   updateSidebarLicense(result);
+                   showToast("Kích hoạt thành công. Cảm ơn bạn đã sử dụng phần mềm!", "success");
+                   resolve(result);
+               } catch (err) {
+                   errorEl.textContent = err.message;
+                   errorEl.hidden = false;
+               } finally {
+                   activateBtn.disabled = false;
+               }
+           };
+           activateBtn.onclick = activate;
+           keyInput.onkeydown = (e) => {
+               if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); activate(); }
+           };
+       });
+   }
+
+   // ============================================================
    // KHỞI ĐỘNG: tải tab mặc định khi mở ứng dụng
    // ============================================================
-   loadFamilyAvatar().then(() => showTab("dashboard"));
+   ensureLicense().then(() => loadFamilyAvatar()).then(() => showTab("dashboard"));
