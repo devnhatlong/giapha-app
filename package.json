@@ -1,0 +1,10 @@
+{
+  "name": "giapha-build-tools",
+  "private": true,
+  "description": "Công cụ chỉ dùng khi build bản cài đặt: obfuscate JS, minify HTML/CSS (xem installer/pack_frontend.py)",
+  "devDependencies": {
+    "clean-css-cli": "^5.6.3",
+    "html-minifier-terser": "^7.2.0",
+    "javascript-obfuscator": "^4.1.1"
+  }
+}

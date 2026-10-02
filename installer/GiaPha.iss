@@ -51,6 +51,12 @@ Name: "vietnamese"; MessagesFile: "Vietnamese.isl"
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
+[InstallDelete]
+; Bản cài cũ để giao diện dạng file rõ (frontend\, backend\schema.sql) -> xóa khi cài đè.
+; Từ bản này giao diện đã được làm rối + nhúng vào GiaPha.exe.
+Type: filesandordirs; Name: "{app}\frontend"
+Type: filesandordirs; Name: "{app}\backend"
+
 [Files]
 Source: "..\build\main.dist\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 

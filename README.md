@@ -11,6 +11,7 @@ giapha_app/
 ├── requirements.txt        <- Danh sách thư viện cần cài
 ├── requirements-build.txt  <- Thư viện chỉ cần khi build bản cài đặt (Nuitka...)
 ├── build.bat               <- Tạo file cài đặt Setup.exe (xem mục 3)
+├── package.json            <- Công cụ làm rối JS / minify (chỉ dùng khi build)
 ├── installer/              <- Script Inno Setup + file ngôn ngữ tiếng Việt
 ├── backend/
 │   ├── database.py         <- Kết nối & khởi tạo SQLite
@@ -72,16 +73,24 @@ build.bat 1.0.0
 Kết quả: `dist\GiaPha-Setup-1.0.0.exe`. Gửi **duy nhất file này** cho khách.
 Khách bấm đúp → cài theo từng bước (Tiếp theo → chọn thư mục → tạo icon Desktop → Cài đặt) → mở app → kích hoạt.
 
-`build.bat` làm 2 việc:
-1. **Nuitka** biên dịch Python sang mã máy (C) → `build\main.dist\GiaPha.exe`. Không còn file `.py`/`.pyc`
+`build.bat` làm 3 việc:
+1. **Làm rối giao diện** (`installer\pack_frontend.py`): obfuscate JS (đổi tên biến, mã hóa chuỗi, xóa comment),
+   minify HTML/CSS, rồi **nhúng giao diện + `schema.sql` vào trong exe**. Thư mục cài đặt không còn `frontend\`, `backend\`.
+   Mã nguồn trong `frontend\` không bị đổi; chạy dev (`python main.py`) vẫn đọc file gốc như cũ.
+2. **Nuitka** biên dịch Python sang mã máy (C) → `build\main.dist\GiaPha.exe`. Không còn file `.py`/`.pyc`
    nên khó dịch ngược hơn nhiều so với PyInstaller. Lần đầu mất 10–30 phút (tự tải trình biên dịch MinGW).
-2. **Inno Setup** (`installer\GiaPha.iss`) gói thư mục đó thành file cài đặt tiếng Việt.
+3. **Inno Setup** (`installer\GiaPha.iss`) gói thư mục đó thành file cài đặt tiếng Việt.
+
+> Giao diện web luôn phải gửi xuống trình duyệt nên không thể giấu tuyệt đối (lúc app chạy vẫn tải được
+> qua `http://127.0.0.1:8756`), nhưng code nhận được đã bị làm rối, rất khó đọc và sửa.
+> Hàm JS được gọi từ HTML (`onclick="showTab(...)"`) phải là hàm toàn cục — obfuscator giữ nguyên tên toàn cục.
 
 Chuẩn bị máy build (một lần):
 
 ```bat
 python -m venv .venv
 .venv\Scripts\pip install -r requirements.txt -r requirements-build.txt
+npm install                      (cần Node.js — công cụ làm rối JS, xem package.json)
 winget install JRSoftware.InnoSetup
 ```
 

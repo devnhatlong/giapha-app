@@ -47,3 +47,6 @@ nuitka-crash-report.xml
 
 # Bản sao lưu tự động trước khi khôi phục (khi chạy dev)
 backups/
+
+# Công cụ build frontend (npm)
+node_modules/

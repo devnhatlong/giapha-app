@@ -14,6 +14,7 @@ Vì sao dùng SQLite thay vì MySQL/XAMPP:
 import sqlite3
 import os
 import sys
+import zlib
 
 # Đường dẫn tới thư mục chứa file này (backend/)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -55,8 +56,13 @@ def init_db():
     Chạy khi ứng dụng khởi động lần đầu: đọc file schema.sql và tạo các bảng
     (CREATE TABLE IF NOT EXISTS -> chạy nhiều lần cũng không lỗi, không mất dữ liệu cũ).
     """
-    with open(SCHEMA_PATH, "r", encoding="utf-8") as f:
-        schema_sql = f.read()
+    try:
+        # Bản cài đặt: schema.sql được nhúng trong exe (installer/pack_frontend.py)
+        import frontend_bundle
+        schema_sql = zlib.decompress(frontend_bundle.SCHEMA_SQL).decode("utf-8")
+    except ImportError:
+        with open(SCHEMA_PATH, "r", encoding="utf-8") as f:
+            schema_sql = f.read()
 
     conn = get_connection()
     try:

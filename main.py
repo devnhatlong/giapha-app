@@ -23,13 +23,22 @@ import threading
 import time
 import os
 import sys
+import zlib
 
 import uvicorn
 import webview
 
 from backend import backup, database
 from backend.api import app
+from fastapi.responses import PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
+
+# Bản cài đặt: giao diện đã được làm rối + nhúng vào exe (installer/pack_frontend.py sinh ra
+# module này lúc build). Chạy dev (`python main.py`) không có module -> đọc thẳng thư mục frontend/.
+try:
+    import frontend_bundle
+except ImportError:
+    frontend_bundle = None
 
 FRONTEND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frontend")
 UPLOADS_DIR = database.UPLOAD_DIR
@@ -84,6 +93,35 @@ def enable_windows_app_icon(icon_path):
     patched_init._gp_icon_patched = True
     wf.BrowserView.BrowserForm.__init__ = patched_init
     wf.BrowserView.BrowserForm._gp_icon_patched = True
+
+
+class EmbeddedFrontend:
+    """Phục vụ giao diện nhúng trong exe (thay cho StaticFiles đọc thư mục frontend/)."""
+
+    # Khai báo rõ: trên Windows, mimetypes đọc registry và có máy trả .js = text/plain
+    MEDIA_TYPES = {
+        ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
+        ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png",
+        ".jpg": "image/jpeg", ".ico": "image/x-icon", ".json": "application/json",
+    }
+
+    def __init__(self, files):
+        self.files = files
+
+    async def __call__(self, scope, receive, send):
+        path = scope["path"]
+        root = scope.get("root_path", "")
+        if root and path.startswith(root):
+            path = path[len(root):]
+        path = path.lstrip("/") or "index.html"
+        data = self.files.get(path)
+        if data is None:
+            response = PlainTextResponse("Not Found", status_code=404)
+        else:
+            ext = os.path.splitext(path)[1].lower()
+            response = Response(zlib.decompress(data),
+                                media_type=self.MEDIA_TYPES.get(ext, "application/octet-stream"))
+        await response(scope, receive, send)
 
 
 def run_server():
@@ -161,7 +199,10 @@ def main():
     # Lưu ý: phải mount SAU khi các route /api/... đã được định nghĩa trong backend/api.py
     app.mount("/app-icon", StaticFiles(directory=ICON_DIR), name="app-icon")
     app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
-    app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
+    if frontend_bundle:
+        app.mount("/", EmbeddedFrontend(frontend_bundle.FILES), name="frontend")
+    else:
+        app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
 
     # Bước 2: chạy server ngầm (daemon=True -> tự tắt khi app chính đóng)
     server_thread = threading.Thread(target=run_server, daemon=True)
